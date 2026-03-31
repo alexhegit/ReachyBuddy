@@ -31,7 +31,8 @@ import numpy as np
 import soundfile as sf
 import sounddevice as sd
 import aiohttp
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, List
+from collections import deque
 
 # Import from existing modules
 # We need to ensure we can import from current directory
@@ -182,6 +183,62 @@ class PiperTTSEngine:
         await asyncio.to_thread(self.speak_with_emotion, text, emotion)
 
 
+class ConversationHistory:
+    """Manages conversation history for context-aware responses."""
+    
+    def __init__(self, max_rounds: int = 5):
+        """
+        Initialize conversation history.
+        
+        Args:
+            max_rounds: Maximum number of conversation rounds to keep (default: 5)
+        """
+        self.max_rounds = max_rounds
+        self.history: deque = deque(maxlen=max_rounds * 2)  # Each round has user + assistant
+        self.enabled = True
+    
+    def add_user_message(self, message: str):
+        """Add a user message to history."""
+        if self.enabled and message.strip():
+            self.history.append({"role": "user", "content": message.strip()})
+    
+    def add_assistant_message(self, message: str):
+        """Add an assistant message to history."""
+        if self.enabled and message.strip():
+            self.history.append({"role": "assistant", "content": message.strip()})
+    
+    def get_messages(self, include_system: bool = True) -> List[Dict[str, str]]:
+        """
+        Get all messages formatted for Ollama API.
+        
+        Args:
+            include_system: Whether to include system prompt
+            
+        Returns:
+            List of message dicts with 'role' and 'content' keys
+        """
+        messages = []
+        
+        if include_system:
+            messages.append({
+                "role": "system",
+                "content": "You are a cute desktop robot assistant. Respond with enthusiasm and warmth. Remember the user's name and preferences from the conversation."
+            })
+        
+        messages.extend(list(self.history))
+        return messages
+    
+    def clear(self):
+        """Clear all conversation history."""
+        self.history.clear()
+        print("🗑️  Conversation history cleared")
+    
+    def get_summary(self) -> str:
+        """Get a summary of current history."""
+        rounds = len(self.history) // 2
+        return f"History: {rounds} rounds (max {self.max_rounds})"
+
+
 class EmotionControllerV71(EmotionControllerV6):
     """Emotion controller using Piper-TTS instead of Edge-TTS."""
     
@@ -223,7 +280,9 @@ class ChatAppWithPiper:
                  speaker_id: int = 0,
                  debug: bool = False, 
                  use_asr: bool = False,
-                 gentle: bool = False):
+                 gentle: bool = False,
+                 history_size: int = 5,
+                 enable_history: bool = True):
         self.model = model
         self.ollama_url = ollama_url
         self.debug = debug
@@ -235,6 +294,10 @@ class ChatAppWithPiper:
         
         self.controller: Optional[EmotionControllerV71] = None
         self.asr_engine = None
+        
+        # Step 2: Conversation history
+        self.history = ConversationHistory(max_rounds=history_size)
+        self.history.enabled = enable_history
 
     async def check_ollama_model(self, session: aiohttp.ClientSession) -> bool:
         """Check if the requested model is available in Ollama."""
@@ -263,20 +326,29 @@ class ChatAppWithPiper:
         return True  # Assume it might work
 
     async def _get_ollama_response_async(self, prompt: str, session: aiohttp.ClientSession) -> Optional[str]:
-        """Get response from Ollama (streaming) using /api/chat."""
+        """Get response from Ollama (streaming) using /api/chat with history."""
         try:
             if self.debug:
                 print(f"\nDEBUG: Sending request to {self.ollama_url}/api/chat")
                 print(f"DEBUG: Model: {self.model}")
+                if self.history.enabled:
+                    print(f"DEBUG: {self.history.get_summary()}")
 
             # Increase timeout significantly as loading a model can take time
             timeout_seconds = 300 
             
-            # Use chat endpoint which is more robust for modern models
-            messages = [
-                {"role": "system", "content": "You are a cute desktop robot assistant. Respond with enthusiasm and warmth."},
-                {"role": "user", "content": prompt}
-            ]
+            # Build messages with history
+            if self.history.enabled:
+                # Get existing history (includes system prompt)
+                messages = self.history.get_messages(include_system=True)
+                # Add current user message
+                messages.append({"role": "user", "content": prompt})
+            else:
+                # Original behavior without history
+                messages = [
+                    {"role": "system", "content": "You are a cute desktop robot assistant. Respond with enthusiasm and warmth."},
+                    {"role": "user", "content": prompt}
+                ]
 
             async with session.post(
                 f"{self.ollama_url}/api/chat",
@@ -396,11 +468,16 @@ class ChatAppWithPiper:
 
     async def start_chat_async(self):
         print("="*60)
-        print("🤖 Reachy Mini Chat v8 with Piper-TTS (Offline)")
+        print("🤖 Reachy Mini Chat v9 with Piper-TTS")
         print("="*60)
         print(f"Ollama Model: {self.model}")
         print(f"Ollama URL: {self.ollama_url}")
         print(f"Piper Model: {self.piper_model}")
+        # Step 2: Show history status
+        if self.history.enabled:
+            print(f"💬 Conversation history: {self.history.max_rounds} rounds (type 'clear' to reset)")
+        else:
+            print("💬 Conversation history: disabled")
         print("💡 Need more voices? Download .onnx models from:")
         print("   https://github.com/rhasspy/piper/releases/tag/v0.0.2")
 
@@ -459,7 +536,12 @@ class ChatAppWithPiper:
                                     print("⚠️ No speech detected, try again")
                                     continue
 
+                                # Step 2: Add to history
+                                self.history.add_user_message(transcription)
+                                
                                 print(f"📝 You: {transcription}")
+                                if self.history.enabled:
+                                    print(f"  {self.history.get_summary()}")
                                 print("\n🤖 Reachy Mini: ", end="", flush=True)
                                 
                                 thinking_task = asyncio.create_task(self._show_thinking_animation(reachy, 10.0))
@@ -473,6 +555,9 @@ class ChatAppWithPiper:
                                     pass
                                 
                                 if response and self.controller:
+                                    # Step 2: Add assistant response to history
+                                    self.history.add_assistant_message(response)
+                                    
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
                                     # Run speech/animation in thread to allow interrupt
                                     speech_task = asyncio.create_task(
@@ -504,9 +589,15 @@ class ChatAppWithPiper:
                                 user_input = input("\n🧑 You: ").strip()
                                 if user_input.lower() in ['quit', 'exit', 'q']:
                                     break
+                                if user_input.lower() == 'clear':
+                                    self.history.clear()
+                                    continue
                                 if not user_input:
                                     continue
 
+                                # Step 2: Add to history
+                                self.history.add_user_message(user_input)
+                                
                                 print("\n🤖 Reachy Mini: ", end="", flush=True)
                                 
                                 thinking_task = asyncio.create_task(self._show_thinking_animation(reachy, 10.0))
@@ -520,6 +611,9 @@ class ChatAppWithPiper:
                                     pass
                                 
                                 if response and self.controller:
+                                    # Step 2: Add assistant response to history
+                                    self.history.add_assistant_message(response)
+                                    
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
                                     # Run speech/animation in thread to allow interrupt
                                     speech_task = asyncio.create_task(
@@ -555,7 +649,7 @@ class ChatAppWithPiper:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Reachy Mini Chat v8 with Piper-TTS")
+    parser = argparse.ArgumentParser(description="Reachy Mini Chat v9 with Piper-TTS and History")
     parser.add_argument('--chat', action='store_true', help='Start interactive chat')
     parser.add_argument('--asr', action='store_true', help='Use microphone ASR input')
     parser.add_argument('--model', default='qwen3:0.6b', help='Ollama model name (e.g., qwen2.5:0.5b)')
@@ -565,6 +659,9 @@ def main():
     parser.add_argument('--speaker', type=int, default=0, help='Speaker ID for multi-speaker models')
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
     parser.add_argument('--gentle', action='store_true', help='Enable gentle_mode for subtle emotions')
+    # Step 2: History options
+    parser.add_argument('--history-size', type=int, default=5, help='Conversation history size (default: 5)')
+    parser.add_argument('--no-history', action='store_true', help='Disable conversation history')
 
     args = parser.parse_args()
     
@@ -583,7 +680,9 @@ def main():
         speaker_id=args.speaker,
         debug=args.debug, 
         use_asr=args.asr,
-        gentle=args.gentle
+        gentle=args.gentle,
+        history_size=args.history_size,
+        enable_history=not args.no_history
     )
 
     app.start_chat()
