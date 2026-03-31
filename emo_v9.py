@@ -1,12 +1,20 @@
 #!/usr/bin/env python3
-"""emo_v8.py - Reachy Mini Chat with Piper-TTS (Offline)
+"""emo_v9.py - Reachy Mini Chat v9 (Development)
 
-Based on emo_v7.py, replacing Edge-TTS with Piper-TTS for fully offline operation.
+Incremental improvements over v8:
+- Step 1: Fix EmotionControllerV71 inheritance (avoid EdgeTTSEngine creation)
+- Step 2: (Optional) Add conversation history/context
+- Step 3: (Optional) Add performance timing statistics
 
 Usage:
-  python emo_v8.py --piper-model models/en_US-lessac-high.onnx  # Run with specific Piper model
-  python emo_v8.py --asr                                        # Enable ASR
-  python emo_v8.py --model qwen2.5:0.5b                         # Set Ollama model
+  python emo_v9.py --piper-model models/en_US-lessac-high.onnx --asr
+  python emo_v9.py --debug  # Show detailed logs
+
+Development workflow:
+  1. Make small change
+  2. Test thoroughly  
+  3. Commit
+  4. Next feature
 """
 
 import os
@@ -29,9 +37,10 @@ from typing import Optional, Tuple
 # We need to ensure we can import from current directory
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from emo_v6 import EmotionControllerV6
+from emo_v6 import EmotionControllerV6, LipSyncControllerV5
 from reachy_mini import ReachyMini
 from reachy_mini.utils import create_head_pose
+from reachy_mini.motion.recorded_move import RecordedMoves
 
 # Optional faster-whisper ASR engine
 try:
@@ -176,12 +185,33 @@ class PiperTTSEngine:
 class EmotionControllerV71(EmotionControllerV6):
     """Emotion controller using Piper-TTS instead of Edge-TTS."""
     
-    def __init__(self, reachy: ReachyMini, piper_model: str, piper_config: str = None, speaker_id: int = 0, debug: bool = False, gentle_mode: bool = False):
-        # Initialize parent with gentle_mode support
-        super().__init__(reachy, debug=debug, gentle_mode=gentle_mode)
+    def __init__(self, reachy: ReachyMini, piper_model: str, piper_config: str = None, 
+                 speaker_id: int = 0, debug: bool = False, gentle_mode: bool = False):
+        # Step 1 Fix: Skip parent __init__ to avoid creating EdgeTTSEngine
+        # Instead, directly initialize only what we need
+        self.reachy = reachy
+        self.debug = debug
+        self.gentle_mode = gentle_mode
+        self.is_speaking_action = False
         
-        # Override TTS engine
+        # Use Piper TTS directly (no Edge-TTS)
         self.tts_engine = PiperTTSEngine(piper_model, piper_config, speaker_id, debug)
+        self.lip_sync = LipSyncControllerV5(reachy, debug=self.debug)
+
+        # Load both libraries for richer motions
+        self.emotions_lib = RecordedMoves("pollen-robotics/reachy-mini-emotions-library")
+        self.dances_lib = RecordedMoves("pollen-robotics/reachy-mini-dances-library")
+
+        self._categorize_recorded_moves()
+
+        self.simple_actions = {
+            'nod': self._simple_nod,
+            'shake': self._simple_shake,
+            'look_curious': self._simple_look_curious,
+            'look_sad': self._simple_look_sad,
+            'excited_wiggle': self._simple_excited_wiggle,
+            'thoughtful_tilt': self._simple_thoughtful_tilt,
+        }
 
 
 class ChatAppWithPiper:
