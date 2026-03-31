@@ -282,7 +282,8 @@ class ChatAppWithPiper:
                  use_asr: bool = False,
                  gentle: bool = False,
                  history_size: int = 5,
-                 enable_history: bool = True):
+                 enable_history: bool = True,
+                 asr_model: str = "small"):
         self.model = model
         self.ollama_url = ollama_url
         self.debug = debug
@@ -291,6 +292,7 @@ class ChatAppWithPiper:
         self.piper_model = piper_model
         self.piper_config = piper_config
         self.speaker_id = speaker_id
+        self.asr_model = asr_model  # Step 4 B: ASR model selection
         
         self.controller: Optional[EmotionControllerV71] = None
         self.asr_engine = None
@@ -503,12 +505,12 @@ class ChatAppWithPiper:
                         print("❌ ASR requested but FasterWhisperASREngine not available.")
                         return
 
-                    print("Initializing ASR engine... (this may take a few seconds)")
+                    print(f"Initializing ASR engine ({self.asr_model})... (this may take a few seconds)")
                     try:
                         # Run ASR initialization in thread to not block event loop
                         self.asr_engine = await asyncio.to_thread(
                             FasterWhisperASREngine,
-                            model_name='small',
+                            model_name=self.asr_model,
                             device='cpu'
                         )
                     except Exception as e:
@@ -699,6 +701,9 @@ def main():
     # Step 2: History options
     parser.add_argument('--history-size', type=int, default=5, help='Conversation history size (default: 5)')
     parser.add_argument('--no-history', action='store_true', help='Disable conversation history')
+    # Step 4 B: ASR model selection
+    parser.add_argument('--asr-model', default='small', choices=['tiny', 'base', 'small', 'medium', 'large'],
+                        help='ASR model size: tiny=fastest, base=balanced, small=default, medium/large=slow but accurate')
 
     args = parser.parse_args()
     
@@ -719,7 +724,8 @@ def main():
         use_asr=args.asr,
         gentle=args.gentle,
         history_size=args.history_size,
-        enable_history=not args.no_history
+        enable_history=not args.no_history,
+        asr_model=args.asr_model
     )
 
     app.start_chat()
