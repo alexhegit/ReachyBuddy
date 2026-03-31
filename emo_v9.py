@@ -376,6 +376,24 @@ class ChatAppWithPiper:
             
         reachy.goto_target(head=create_head_pose(), duration=0.5)
 
+    def _speak_and_animate(self, response: str, emotion: str, intensity: str, emotion_level: float):
+        """Helper to run speech and animation in thread (blocking, for asyncio.to_thread)."""
+        try:
+            # This runs emo_v6's speak_with_expression_parallel which may block
+            import asyncio
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(
+                    self.controller.speak_with_expression_parallel(response, emotion, intensity, emotion_level)
+                )
+            finally:
+                loop.close()
+        except Exception as e:
+            if self.debug:
+                print(f"[Speech] Error: {e}")
+
     async def start_chat_async(self):
         print("="*60)
         print("🤖 Reachy Mini Chat v8 with Piper-TTS (Offline)")
@@ -408,9 +426,14 @@ class ChatAppWithPiper:
                         print("❌ ASR requested but FasterWhisperASREngine not available.")
                         return
 
-                    print("Initializing ASR engine...")
+                    print("Initializing ASR engine... (this may take a few seconds)")
                     try:
-                        self.asr_engine = FasterWhisperASREngine(model_name='small', device='cpu')
+                        # Run ASR initialization in thread to not block event loop
+                        self.asr_engine = await asyncio.to_thread(
+                            FasterWhisperASREngine,
+                            model_name='small',
+                            device='cpu'
+                        )
                     except Exception as e:
                         print(f"❌ Failed to initialize ASR engine: {e}")
                         return
@@ -423,35 +446,55 @@ class ChatAppWithPiper:
                         
                         while True:
                             try:
-                                print("\n🎙️ Speak now...")
-                                start_time = time.time()
-                                transcription = self.asr_engine.transcribe_from_mic_vad(max_duration=4.0, silence_threshold=1.5)
+                                print("\n🎙️ Speak now... (Ctrl+C to exit)")
+                                
+                                # Run ASR in thread to not block event loop
+                                transcription = await asyncio.to_thread(
+                                    self.asr_engine.transcribe_from_mic_vad,
+                                    max_duration=4.0,
+                                    silence_threshold=1.5
+                                )
                                 
                                 if not transcription:
+                                    print("⚠️ No speech detected, try again")
                                     continue
 
                                 print(f"📝 You: {transcription}")
                                 print("\n🤖 Reachy Mini: ", end="", flush=True)
                                 
-                                llm_start = time.time()
                                 thinking_task = asyncio.create_task(self._show_thinking_animation(reachy, 10.0))
                                 llm_task = asyncio.create_task(self._get_ollama_response_async(transcription, session))
                                 
                                 response = await llm_task
                                 thinking_task.cancel()
+                                try:
+                                    await thinking_task
+                                except asyncio.CancelledError:
+                                    pass
                                 
                                 if response and self.controller:
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
-                                    await self.controller.speak_with_expression_parallel(response, emotion, intensity, emotion_level)
+                                    # Run speech/animation in thread to allow interrupt
+                                    speech_task = asyncio.create_task(
+                                        asyncio.to_thread(
+                                            self._speak_and_animate,
+                                            response, emotion, intensity, emotion_level
+                                        )
+                                    )
+                                    try:
+                                        await speech_task
+                                    except asyncio.CancelledError:
+                                        pass
 
                             except KeyboardInterrupt:
-                                break
+                                print("\n\n👋 Goodbye!")
+                                return
                             except Exception as e:
                                 print(f"⚠️ Error: {e}")
                                 await asyncio.sleep(1.0)
 
                 else:
-                    print("\n💬 Start chatting (type 'quit' to exit)")
+                    print("\n💬 Start chatting (type 'quit' or Ctrl+C to exit)")
                     async with aiohttp.ClientSession() as session:
                         # Check model once
                         await self.check_ollama_model(session)
@@ -471,13 +514,28 @@ class ChatAppWithPiper:
                                 
                                 response = await llm_task
                                 thinking_task.cancel()
+                                try:
+                                    await thinking_task
+                                except asyncio.CancelledError:
+                                    pass
                                 
                                 if response and self.controller:
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
-                                    await self.controller.speak_with_expression_parallel(response, emotion, intensity, emotion_level)
+                                    # Run speech/animation in thread to allow interrupt
+                                    speech_task = asyncio.create_task(
+                                        asyncio.to_thread(
+                                            self._speak_and_animate,
+                                            response, emotion, intensity, emotion_level
+                                        )
+                                    )
+                                    try:
+                                        await speech_task
+                                    except asyncio.CancelledError:
+                                        pass
 
                             except KeyboardInterrupt:
-                                break
+                                print("\n\n👋 Goodbye!")
+                                return
                             except Exception as e:
                                 print(f"\n⚠️ Error: {e}")
 
