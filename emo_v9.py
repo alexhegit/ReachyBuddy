@@ -283,7 +283,8 @@ class ChatAppWithPiper:
                  gentle: bool = False,
                  history_size: int = 5,
                  enable_history: bool = True,
-                 asr_model: str = "small"):
+                 asr_model: str = "small",
+                 vad_silence: float = 0.8):
         self.model = model
         self.ollama_url = ollama_url
         self.debug = debug
@@ -293,6 +294,7 @@ class ChatAppWithPiper:
         self.piper_config = piper_config
         self.speaker_id = speaker_id
         self.asr_model = asr_model  # Step 4 B: ASR model selection
+        self.vad_silence = vad_silence  # VAD silence threshold (lower = more responsive)
         
         self.controller: Optional[EmotionControllerV71] = None
         self.asr_engine = None
@@ -505,7 +507,7 @@ class ChatAppWithPiper:
                         print("❌ ASR requested but FasterWhisperASREngine not available.")
                         return
 
-                    print(f"Initializing ASR engine ({self.asr_model})... (this may take a few seconds)")
+                    print(f"Initializing ASR engine ({self.asr_model}, VAD: {self.vad_silence}s silence)... (this may take a few seconds)")
                     try:
                         # Run ASR initialization in thread to not block event loop
                         self.asr_engine = await asyncio.to_thread(
@@ -534,7 +536,7 @@ class ChatAppWithPiper:
                                 transcription = await asyncio.to_thread(
                                     self.asr_engine.transcribe_from_mic_vad,
                                     max_duration=4.0,
-                                    silence_threshold=1.5
+                                    silence_threshold=self.vad_silence
                                 )
                                 
                                 asr_time = time.time() - asr_start
@@ -704,6 +706,9 @@ def main():
     # Step 4 B: ASR model selection
     parser.add_argument('--asr-model', default='small', choices=['tiny', 'base', 'small', 'medium', 'large'],
                         help='ASR model size: tiny=fastest, base=balanced, small=default, medium/large=slow but accurate')
+    # VAD optimization: dynamic silence detection
+    parser.add_argument('--vad-silence', type=float, default=0.8,
+                        help='VAD silence threshold in seconds (default: 0.8). Lower = more responsive but may cut off pauses')
 
     args = parser.parse_args()
     
@@ -725,7 +730,8 @@ def main():
         gentle=args.gentle,
         history_size=args.history_size,
         enable_history=not args.no_history,
-        asr_model=args.asr_model
+        asr_model=args.asr_model,
+        vad_silence=args.vad_silence
     )
 
     app.start_chat()
