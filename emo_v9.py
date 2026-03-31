@@ -525,12 +525,17 @@ class ChatAppWithPiper:
                             try:
                                 print("\n🎙️ Speak now... (Ctrl+C to exit)")
                                 
+                                # Step 4 A: Timing - ASR
+                                asr_start = time.time()
+                                
                                 # Run ASR in thread to not block event loop
                                 transcription = await asyncio.to_thread(
                                     self.asr_engine.transcribe_from_mic_vad,
                                     max_duration=4.0,
                                     silence_threshold=1.5
                                 )
+                                
+                                asr_time = time.time() - asr_start
                                 
                                 if not transcription:
                                     print("⚠️ No speech detected, try again")
@@ -544,10 +549,16 @@ class ChatAppWithPiper:
                                     print(f"  {self.history.get_summary()}")
                                 print("\n🤖 Reachy Mini: ", end="", flush=True)
                                 
+                                # Step 4 A: Timing - LLM
+                                llm_start = time.time()
+                                
                                 thinking_task = asyncio.create_task(self._show_thinking_animation(reachy, 10.0))
                                 llm_task = asyncio.create_task(self._get_ollama_response_async(transcription, session))
                                 
                                 response = await llm_task
+                                
+                                llm_time = time.time() - llm_start
+                                
                                 thinking_task.cancel()
                                 try:
                                     await thinking_task
@@ -557,6 +568,9 @@ class ChatAppWithPiper:
                                 if response and self.controller:
                                     # Step 2: Add assistant response to history
                                     self.history.add_assistant_message(response)
+                                    
+                                    # Step 4 A: Timing - TTS/Animation
+                                    tts_start = time.time()
                                     
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
                                     # Run speech/animation in thread to allow interrupt
@@ -570,6 +584,13 @@ class ChatAppWithPiper:
                                         await speech_task
                                     except asyncio.CancelledError:
                                         pass
+                                    
+                                    tts_time = time.time() - tts_start
+                                    total_time = asr_time + llm_time + tts_time
+                                    
+                                    # Step 4 A: Display timing
+                                    if self.debug:
+                                        print(f"\n  ⏱️  [Timing] ASR: {asr_time:.2f}s, LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s, Total: {total_time:.2f}s")
 
                             except KeyboardInterrupt:
                                 print("\n\n👋 Goodbye!")
@@ -600,10 +621,16 @@ class ChatAppWithPiper:
                                 
                                 print("\n🤖 Reachy Mini: ", end="", flush=True)
                                 
+                                # Step 4 A: Timing - LLM
+                                llm_start = time.time()
+                                
                                 thinking_task = asyncio.create_task(self._show_thinking_animation(reachy, 10.0))
                                 llm_task = asyncio.create_task(self._get_ollama_response_async(user_input, session))
                                 
                                 response = await llm_task
+                                
+                                llm_time = time.time() - llm_start
+                                
                                 thinking_task.cancel()
                                 try:
                                     await thinking_task
@@ -613,6 +640,9 @@ class ChatAppWithPiper:
                                 if response and self.controller:
                                     # Step 2: Add assistant response to history
                                     self.history.add_assistant_message(response)
+                                    
+                                    # Step 4 A: Timing - TTS/Animation
+                                    tts_start = time.time()
                                     
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
                                     # Run speech/animation in thread to allow interrupt
@@ -626,6 +656,13 @@ class ChatAppWithPiper:
                                         await speech_task
                                     except asyncio.CancelledError:
                                         pass
+                                    
+                                    tts_time = time.time() - tts_start
+                                    total_time = llm_time + tts_time
+                                    
+                                    # Step 4 A: Display timing
+                                    if self.debug:
+                                        print(f"\n  ⏱️  [Timing] LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s, Total: {total_time:.2f}s")
 
                             except KeyboardInterrupt:
                                 print("\n\n👋 Goodbye!")
