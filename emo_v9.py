@@ -284,7 +284,9 @@ class ChatAppWithPiper:
                  history_size: int = 5,
                  enable_history: bool = True,
                  asr_model: str = "small",
-                 vad_silence: float = 0.8):
+                 vad_silence: float = 0.8,
+                 vad_aggressive: int = 1,
+                 use_vad: bool = True):
         self.model = model
         self.ollama_url = ollama_url
         self.debug = debug
@@ -294,7 +296,9 @@ class ChatAppWithPiper:
         self.piper_config = piper_config
         self.speaker_id = speaker_id
         self.asr_model = asr_model  # Step 4 B: ASR model selection
-        self.vad_silence = vad_silence  # VAD silence threshold (lower = more responsive)
+        self.vad_silence = vad_silence  # VAD silence threshold (default 0.8s, increase if cutting off)
+        self.vad_aggressive = vad_aggressive  # VAD aggressiveness 0-3 (1=gentle, 3=strict)
+        self.use_vad = use_vad  # Whether to use VAD or fixed-duration recording
         
         self.controller: Optional[EmotionControllerV71] = None
         self.asr_engine = None
@@ -532,12 +536,21 @@ class ChatAppWithPiper:
                                 # Step 4 A: Timing - ASR
                                 asr_start = time.time()
                                 
-                                # Run ASR in thread to not block event loop
-                                transcription = await asyncio.to_thread(
-                                    self.asr_engine.transcribe_from_mic_vad,
-                                    max_duration=4.0,
-                                    silence_threshold=self.vad_silence
-                                )
+                                if self.use_vad:
+                                    # VAD-based recording - stops on silence
+                                    transcription = await asyncio.to_thread(
+                                        self.asr_engine.transcribe_from_mic_vad,
+                                        max_duration=4.0,
+                                        silence_threshold=self.vad_silence,
+                                        aggressiveness=self.vad_aggressive,
+                                        trailing_buffer_ms=300
+                                    )
+                                else:
+                                    # Fixed-duration recording - always records 4s
+                                    transcription = await asyncio.to_thread(
+                                        self.asr_engine.transcribe_from_mic,
+                                        duration=4.0
+                                    )
                                 
                                 asr_time = time.time() - asr_start
                                 
@@ -708,7 +721,11 @@ def main():
                         help='ASR model size: tiny=fastest, base=balanced, small=default, medium/large=slow but accurate')
     # VAD optimization: dynamic silence detection
     parser.add_argument('--vad-silence', type=float, default=0.8,
-                        help='VAD silence threshold in seconds (default: 0.8). Lower = more responsive but may cut off pauses')
+                        help='VAD silence threshold in seconds (default: 0.8). Increase if speech is cut off')
+    parser.add_argument('--vad-aggressive', type=int, default=1, choices=[0, 1, 2, 3],
+                        help='VAD aggressiveness: 0=least aggressive (more false positives), 1=gentle(recommended), 2=strict, 3=most aggressive (may cut speech)')
+    parser.add_argument('--no-vad', action='store_true',
+                        help='Disable VAD - use fixed 4s recording instead')
 
     args = parser.parse_args()
     
@@ -731,7 +748,9 @@ def main():
         history_size=args.history_size,
         enable_history=not args.no_history,
         asr_model=args.asr_model,
-        vad_silence=args.vad_silence
+        vad_silence=args.vad_silence,
+        vad_aggressive=args.vad_aggressive,
+        use_vad=not args.no_vad
     )
 
     app.start_chat()

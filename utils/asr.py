@@ -79,8 +79,18 @@ class FasterWhisperASREngine:
         sf.write(tmp_path, data, samplerate=samplerate)
         return tmp_path
 
-    def _record_temp_wav_vad(self, max_duration: float = 5.0, samplerate: int = 16000, silence_threshold: float = 2.0) -> str:
-        """Record using Voice Activity Detection (VAD) - stops when speech ends."""
+    def _record_temp_wav_vad(self, max_duration: float = 5.0, samplerate: int = 16000, 
+                              silence_threshold: float = 2.0, aggressiveness: int = 1,
+                              trailing_buffer_ms: float = 300) -> str:
+        """Record using Voice Activity Detection (VAD) - stops when speech ends.
+        
+        Args:
+            max_duration: Maximum recording duration in seconds
+            samplerate: Audio sample rate
+            silence_threshold: Seconds of silence before stopping
+            aggressiveness: VAD aggressiveness 0-3 (0=least aggressive, 3=most aggressive)
+            trailing_buffer_ms: Keep this many ms of audio before the silence (for whisper context)
+        """
         try:
             import sounddevice as sd
             import soundfile as sf
@@ -90,7 +100,7 @@ class FasterWhisperASREngine:
         
         try:
             import webrtcvad
-            vad = webrtcvad.Vad(3)  # Aggressiveness level 3 (most aggressive)
+            vad = webrtcvad.Vad(aggressiveness)  # Configurable aggressiveness
         except ImportError:
             print("⚠️ webrtcvad not installed. Falling back to fixed recording.")
             return self._record_temp_wav(max_duration, samplerate)
@@ -101,11 +111,13 @@ class FasterWhisperASREngine:
         
         frame_duration_ms = 30  # WebRTC VAD works best with 10, 20, or 30ms frames
         frame_samples = int(samplerate * frame_duration_ms / 1000)
+        trailing_buffer_frames = int(trailing_buffer_ms / frame_duration_ms)
         
         # Record until silence or max duration
         start_time = time.time()
         silent_frames = 0
         required_silent_frames = int(silence_threshold * 1000 / frame_duration_ms)
+        speech_detected = False
         
         with sd.InputStream(samplerate=samplerate, channels=channels, dtype='int16') as stream:
             while (time.time() - start_time) < max_duration:
@@ -116,18 +128,24 @@ class FasterWhisperASREngine:
                 frames.append(data)
                 
                 # Check if frame contains speech
+                is_speech_frame = False
                 try:
                     if vad.is_speech(data.tobytes(), samplerate):
                         silent_frames = 0  # Reset silence counter
+                        speech_detected = True
+                        is_speech_frame = True
                     else:
                         silent_frames += 1
                 except Exception:
                     # VAD may fail for very short or malformed frames
                     silent_frames += 1
                 
-                # If we've had enough silent frames, stop recording
-                if silent_frames >= required_silent_frames:
-                    print(f"🔇 Detected {silence_threshold}s of silence - stopping recording")
+                # Only stop after we've detected speech AND have enough silence
+                if speech_detected and silent_frames >= required_silent_frames:
+                    # Keep trailing buffer: remove some trailing silent frames but keep context
+                    if trailing_buffer_frames > 0 and len(frames) > trailing_buffer_frames:
+                        frames = frames[:-trailing_buffer_frames]
+                    print(f"🔇 Detected {silence_threshold}s of silence after speech - stopping")
                     break
         
         if not frames:
@@ -158,11 +176,22 @@ class FasterWhisperASREngine:
                 except Exception:
                     pass
 
-    def transcribe_from_mic_vad(self, max_duration: float = 5.0, samplerate: int = 16000, silence_threshold: float = 2.0) -> Optional[str]:
-        """Record from mic using VAD then transcribe; returns the transcribed text or None."""
+    def transcribe_from_mic_vad(self, max_duration: float = 5.0, samplerate: int = 16000, 
+                                 silence_threshold: float = 2.0, aggressiveness: int = 1,
+                                 trailing_buffer_ms: float = 300) -> Optional[str]:
+        """Record from mic using VAD then transcribe; returns the transcribed text or None.
+        
+        Args:
+            max_duration: Maximum recording duration in seconds
+            samplerate: Audio sample rate
+            silence_threshold: Seconds of silence before stopping
+            aggressiveness: VAD aggressiveness 0-3 (1=least aggressive/recommended, 3=most aggressive)
+            trailing_buffer_ms: Keep this many ms of audio before silence for better transcription
+        """
         wav_path = None
         try:
-            wav_path = self._record_temp_wav_vad(max_duration, samplerate, silence_threshold)
+            wav_path = self._record_temp_wav_vad(max_duration, samplerate, silence_threshold,
+                                                  aggressiveness, trailing_buffer_ms)
             text = self.transcribe_file(wav_path)
             return text
         finally:
