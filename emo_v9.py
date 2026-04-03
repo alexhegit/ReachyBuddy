@@ -28,6 +28,7 @@ import argparse
 import threading
 import subprocess
 import numpy as np
+import select  # For checking keyboard/EOF input
 import soundfile as sf
 import sounddevice as sd
 import aiohttp
@@ -181,6 +182,87 @@ class PiperTTSEngine:
         """Async version of speak_with_emotion (runs in thread)."""
         # Piper synthesis is CPU bound, so run in a separate thread
         await asyncio.to_thread(self.speak_with_emotion, text, emotion)
+    
+    def speak_with_interrupt(self, text: str, emotion: str = 'neutral', 
+                             stop_event: threading.Event = None) -> bool:
+        """
+        Speak text with support for interrupt via stop_event.
+        
+        Args:
+            text: Text to speak
+            emotion: Emotion for TTS
+            stop_event: Threading Event to signal interruption
+        
+        Returns:
+            True if completed without interrupt
+            False if interrupted
+        """
+        print(f"🔊 Speaking: '{text[:50]}...'")
+        
+        if not text.strip():
+            return True
+            
+        if not self.voice:
+            print(f"❌ Voice not loaded!")
+            return True
+        
+        tmp_path = None
+        interrupted = False
+        try:
+            # Create a temporary WAV file
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                tmp_path = tmp.name
+            
+            # Synthesize to file
+            with wave.open(tmp_path, "wb") as wav_file:
+                syn_config = None
+                if self.SynthesisConfig and self.speaker_id is not None:
+                    syn_config = self.SynthesisConfig(speaker_id=self.speaker_id)
+                self.voice.synthesize_wav(text, wav_file, syn_config=syn_config)
+            
+            # Read audio data
+            data, sr = sf.read(tmp_path, dtype='float32')
+            
+            if data.size == 0:
+                return True
+            
+            # Play audio with interrupt support
+            sd.play(data, samplerate=sr)
+            print(f"   💡 Press Ctrl+D to interrupt")
+            
+            # Wait for playback or interrupt
+            while True:
+                # Check if interrupted
+                if stop_event and stop_event.is_set():
+                    sd.stop()
+                    print("\n⏹️  Interrupted")
+                    interrupted = True
+                    break
+                
+                # Check if playback finished
+                stream = sd.get_stream()
+                if stream is None or not stream.active:
+                    break
+                
+                time.sleep(0.05)
+            
+            return not interrupted
+            
+        except Exception as e:
+            print(f"❌ TTS error: {e}")
+            return True
+        finally:
+            # Cleanup
+            try:
+                sd.stop()
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except:
+                pass
+    
+    async def speak_with_interrupt_async(self, text: str, emotion: str = 'neutral') -> bool:
+        """Async version of speak_with_interrupt."""
+        return await asyncio.to_thread(self.speak_with_interrupt, text, emotion)
 
 
 class ConversationHistory:
@@ -269,13 +351,126 @@ class EmotionControllerV71(EmotionControllerV6):
             'excited_wiggle': self._simple_excited_wiggle,
             'thoughtful_tilt': self._simple_thoughtful_tilt,
         }
+    
+    def _choose_animation_for_emotion(self, emotion: str, intensity: str):
+        """Choose animation move based on emotion and intensity.
+        
+        Returns:
+            (move, anim_intensity, speed) tuple
+        """
+        # Map emotion to category
+        category_map = {
+            'positive': 'positive',
+            'negative': 'negative', 
+            'question': 'question',
+            'activity': 'activity',
+            'neutral': 'neutral',
+            'happy': 'positive',
+            'sad': 'negative',
+            'angry': 'negative',
+            'excited': 'activity',
+            'curious': 'question',
+        }
+        category = category_map.get(emotion, 'neutral')
+        
+        # Get available moves for this category
+        available = self.emotion_to_moves.get(category, [])
+        if not available:
+            available = self.emotion_to_moves.get('neutral', [])
+        
+        # Filter gentle moves if in gentle mode
+        if self.gentle_mode:
+            gentle_moves = [(lib, name) for lib, name in available 
+                          if name in ['calming1', 'serenity1', 'thoughtful1', 'attentive1']]
+            if gentle_moves:
+                available = gentle_moves
+        
+        # Choose move based on intensity
+        import random
+        if not available:
+            return None, intensity, 1.0
+            
+        if intensity == 'high' and len(available) > 1:
+            move = available[-1]  # Last (often more intense)
+        elif intensity == 'low' and len(available) > 1:
+            move = available[0]   # First (often gentler)
+        else:
+            move = random.choice(available)
+        
+        # Calculate speed
+        speed_map = {'high': 1.2, 'medium': 1.0, 'low': 0.8}
+        if self.gentle_mode:
+            speed_map = {'high': 1.0, 'medium': 0.8, 'low': 0.6}
+        speed = speed_map.get(intensity, 1.0)
+        
+        return move, intensity, speed
+    
+    def _play_recorded_move(self, move, duration: float = 2.0):
+        """Execute a recorded move."""
+        if isinstance(move, tuple) and len(move) == 2:
+            lib_tag, move_name = move
+            if self.debug:
+                print(f"🎬 Playing {lib_tag}/{move_name}")
+            if lib_tag == 'emotions':
+                mv = self.emotions_lib.get(move_name)
+            else:
+                mv = self.dances_lib.get(move_name)
+        else:
+            move_name = move
+            if self.debug:
+                print(f"🎬 Playing {move_name}")
+            # Try dances first, then emotions
+            try:
+                mv = self.dances_lib.get(move_name)
+            except Exception:
+                mv = self.emotions_lib.get(move_name)
+        
+        self.reachy.play_move(mv, initial_goto_duration=duration)
+    
+    def speak_with_interrupt(self, text: str, emotion: str = 'neutral', 
+                             intensity: str = 'medium', level: float = 0.5,
+                             stop_event: threading.Event = None) -> bool:
+        """
+        Speak with expression and support interrupt.
+        
+        Args:
+            stop_event: Threading Event to signal interruption
+        
+        Returns:
+            True if completed without interrupt
+            False if interrupted
+        """
+        print(f"🎙️ Speaking: '{text[:50]}...'")
+        
+        # Determine animation intensity based on emotion
+        move, anim_intensity, speed = self._choose_animation_for_emotion(emotion, intensity)
+        
+        # Start speaking with TTS (pass stop_event for interrupt support)
+        speak_result = self.tts_engine.speak_with_interrupt(
+            text, emotion=emotion, stop_event=stop_event
+        )
+        
+        # If completed, do animation
+        if speak_result:
+            try:
+                if move and not self.gentle_mode:
+                    duration = max(1.5, min(4.0, len(text) * 0.08))
+                    print(f"   Animating: {move}")
+                    asyncio.run(self._play_recorded_move(move, duration))
+                else:
+                    print(f"   Gentle mode: lip sync")
+                    asyncio.run(self.lip_sync.speak_phrase(text, emotion))
+            except Exception as e:
+                print(f"⚠️ Animation error: {e}")
+        
+        return speak_result
 
 
 class ChatAppWithPiper:
     def __init__(self, 
                  model: str = "qwen3:0.6b", 
                  ollama_url: str = "http://localhost:11434", 
-                 piper_model: str = "en_US-libritts_r-medium.onnx",
+                 piper_model: str = "models/en-us-ryan-medium.onnx",
                  piper_config: str = None,
                  speaker_id: int = 0,
                  debug: bool = False, 
@@ -306,6 +501,9 @@ class ChatAppWithPiper:
         # Step 2: Conversation history
         self.history = ConversationHistory(max_rounds=history_size)
         self.history.enabled = enable_history
+        
+        # Interrupt handling
+        self._stop_speaking_event = threading.Event()
 
     async def check_ollama_model(self, session: aiohttp.ClientSession) -> bool:
         """Check if the requested model is available in Ollama."""
@@ -456,23 +654,22 @@ class ChatAppWithPiper:
             
         reachy.goto_target(head=create_head_pose(), duration=0.5)
 
-    def _speak_and_animate(self, response: str, emotion: str, intensity: str, emotion_level: float):
-        """Helper to run speech and animation in thread (blocking, for asyncio.to_thread)."""
+    def _speak_and_animate(self, response: str, emotion: str, intensity: str, 
+                           emotion_level: float, stop_event: threading.Event = None) -> bool:
+        """
+        Helper to run speech and animation with interrupt support.
+        """
+        if not self.controller:
+            print("❌ No controller available!")
+            return True
+            
         try:
-            # This runs emo_v6's speak_with_expression_parallel which may block
-            import asyncio
-            # Create a new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(
-                    self.controller.speak_with_expression_parallel(response, emotion, intensity, emotion_level)
-                )
-            finally:
-                loop.close()
+            return self.controller.speak_with_interrupt(
+                response, emotion, intensity, emotion_level, stop_event
+            )
         except Exception as e:
-            if self.debug:
-                print(f"[Speech] Error: {e}")
+            print(f"❌ Speech error: {e}")
+            return True
 
     async def start_chat_async(self):
         print("="*60)
@@ -583,31 +780,53 @@ class ChatAppWithPiper:
                                     pass
                                 
                                 if response and self.controller:
-                                    # Step 2: Add assistant response to history
-                                    self.history.add_assistant_message(response)
-                                    
                                     # Step 4 A: Timing - TTS/Animation
                                     tts_start = time.time()
                                     
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
-                                    # Run speech/animation in thread to allow interrupt
-                                    speech_task = asyncio.create_task(
-                                        asyncio.to_thread(
-                                            self._speak_and_animate,
-                                            response, emotion, intensity, emotion_level
-                                        )
-                                    )
+                                    
+                                    # Reset interrupt event
+                                    self._stop_speaking_event.clear()
+                                    
+                                    # Run TTS in thread with interrupt support
+                                    speech_task = asyncio.create_task(asyncio.to_thread(
+                                        self._speak_and_animate,
+                                        response, emotion, intensity, emotion_level,
+                                        self._stop_speaking_event
+                                    ))
+                                    
+                                    # Wait for TTS to complete or Ctrl+D to interrupt
                                     try:
-                                        await speech_task
+                                        while not speech_task.done():
+                                            # Check for Ctrl+D (EOF)
+                                            if select.select([sys.stdin], [], [], 0)[0]:
+                                                try:
+                                                    char = sys.stdin.read(1)
+                                                    if char == '':  # EOF = Ctrl+D
+                                                        print("\n⏹️  Interrupting...")
+                                                        self._stop_speaking_event.set()
+                                                        break
+                                                except:
+                                                    pass
+                                            await asyncio.sleep(0.05)
+                                        
+                                        speech_completed = await speech_task
                                     except asyncio.CancelledError:
-                                        pass
+                                        speech_completed = False
                                     
                                     tts_time = time.time() - tts_start
                                     total_time = asr_time + llm_time + tts_time
                                     
+                                    # Step 2: Add to history
+                                    self.history.add_assistant_message(response)
+                                    
+                                    if not speech_completed:
+                                        print("🎤 Ready for your next question...")
+                                    
                                     # Step 4 A: Display timing
                                     if self.debug:
-                                        print(f"\n  ⏱️  [Timing] ASR: {asr_time:.2f}s, LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s, Total: {total_time:.2f}s")
+                                        status = "completed" if speech_completed else "interrupted"
+                                        print(f"\n  ⏱️  [Timing] ASR: {asr_time:.2f}s, LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s ({status}), Total: {total_time:.2f}s")
 
                             except KeyboardInterrupt:
                                 print("\n\n👋 Goodbye!")
@@ -655,31 +874,53 @@ class ChatAppWithPiper:
                                     pass
                                 
                                 if response and self.controller:
-                                    # Step 2: Add assistant response to history
-                                    self.history.add_assistant_message(response)
-                                    
                                     # Step 4 A: Timing - TTS/Animation
                                     tts_start = time.time()
                                     
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
-                                    # Run speech/animation in thread to allow interrupt
-                                    speech_task = asyncio.create_task(
-                                        asyncio.to_thread(
-                                            self._speak_and_animate,
-                                            response, emotion, intensity, emotion_level
-                                        )
-                                    )
+                                    
+                                    # Reset interrupt event
+                                    self._stop_speaking_event.clear()
+                                    
+                                    # Run TTS in thread with interrupt support
+                                    speech_task = asyncio.create_task(asyncio.to_thread(
+                                        self._speak_and_animate,
+                                        response, emotion, intensity, emotion_level,
+                                        self._stop_speaking_event
+                                    ))
+                                    
+                                    # Wait for TTS to complete or Ctrl+D to interrupt
                                     try:
-                                        await speech_task
+                                        while not speech_task.done():
+                                            # Check for Ctrl+D (EOF)
+                                            if select.select([sys.stdin], [], [], 0)[0]:
+                                                try:
+                                                    char = sys.stdin.read(1)
+                                                    if char == '':  # EOF = Ctrl+D
+                                                        print("\n⏹️  Interrupting...")
+                                                        self._stop_speaking_event.set()
+                                                        break
+                                                except:
+                                                    pass
+                                            await asyncio.sleep(0.05)
+                                        
+                                        speech_completed = await speech_task
                                     except asyncio.CancelledError:
-                                        pass
+                                        speech_completed = False
                                     
                                     tts_time = time.time() - tts_start
                                     total_time = llm_time + tts_time
                                     
+                                    # Step 2: Add to history
+                                    self.history.add_assistant_message(response)
+                                    
+                                    if not speech_completed:
+                                        print("🎤 Ready for your next question...")
+                                    
                                     # Step 4 A: Display timing
                                     if self.debug:
-                                        print(f"\n  ⏱️  [Timing] LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s, Total: {total_time:.2f}s")
+                                        status = "completed" if speech_completed else "interrupted"
+                                        print(f"\n  ⏱️  [Timing] LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s ({status}), Total: {total_time:.2f}s")
 
                             except KeyboardInterrupt:
                                 print("\n\n👋 Goodbye!")
@@ -708,7 +949,7 @@ def main():
     parser.add_argument('--asr', action='store_true', help='Use microphone ASR input')
     parser.add_argument('--model', default='qwen3:0.6b', help='Ollama model name (e.g., qwen2.5:0.5b)')
     parser.add_argument('--url', default='http://localhost:11434', help='Ollama URL')
-    parser.add_argument('--piper-model', default='en_US-libritts_r-medium.onnx', help='Path to Piper .onnx model')
+    parser.add_argument('--piper-model', default='models/en-us-ryan-medium.onnx', help='Path to Piper .onnx model')
     parser.add_argument('--piper-config', default=None, help='Path to Piper .json config')
     parser.add_argument('--speaker', type=int, default=0, help='Speaker ID for multi-speaker models')
     parser.add_argument('--debug', action='store_true', help='Enable debug output')
