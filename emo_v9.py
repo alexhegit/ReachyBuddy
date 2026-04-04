@@ -432,6 +432,7 @@ class EmotionControllerV71(EmotionControllerV6):
                              stop_event: threading.Event = None) -> bool:
         """
         Speak with expression and support interrupt.
+        TTS and animation run in parallel for natural interaction.
         
         Args:
             stop_event: Threading Event to signal interruption
@@ -445,23 +446,52 @@ class EmotionControllerV71(EmotionControllerV6):
         # Determine animation intensity based on emotion
         move, anim_intensity, speed = self._choose_animation_for_emotion(emotion, intensity)
         
-        # Start speaking with TTS (pass stop_event for interrupt support)
+        # Calculate animation duration based on text length and intensity
+        # Duration affects how fast the robot moves (lower = faster/more dynamic)
+        base_duration = max(1.5, min(4.0, len(text) * 0.08))
+        # Apply speed multiplier (higher speed = lower duration = faster movement)
+        anim_duration = base_duration / speed
+        
+        # Run TTS and animation in parallel
+        import threading
+        
+        def animation_thread():
+            """Run animation in separate thread."""
+            try:
+                if move and not self.gentle_mode:
+                    print(f"   🎬 Animating: {move} (duration: {anim_duration:.1f}s, speed: {speed:.1f}x)")
+                    # _play_recorded_move is synchronous - use anim_duration for initial_goto
+                    self._play_recorded_move(move, anim_duration)
+                    print(f"   ✅ Animation completed")
+                else:
+                    if self.gentle_mode:
+                        print(f"   😌 Gentle mode: subtle lip sync only")
+                    else:
+                        print(f"   🎭 No move selected, using lip sync")
+                    # Use LipSyncControllerV5 API
+                    emotion_level = 0.5 if emotion == 'neutral' else 0.8
+                    print(f"   🎵 Starting lip sync (emotion_level: {emotion_level})")
+                    self.lip_sync.start_lip_sync(text, emotion_level)
+                    # Keep lip sync running for estimated speech duration
+                    time.sleep(anim_duration)
+                    self.lip_sync.stop_lip_sync()
+                    print(f"   ✅ Lip sync completed")
+            except Exception as e:
+                print(f"⚠️ Animation error: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Start animation in background thread
+        anim_thread = threading.Thread(target=animation_thread, daemon=True)
+        anim_thread.start()
+        
+        # Run TTS (blocking with interrupt support)
         speak_result = self.tts_engine.speak_with_interrupt(
             text, emotion=emotion, stop_event=stop_event
         )
         
-        # If completed, do animation
-        if speak_result:
-            try:
-                if move and not self.gentle_mode:
-                    duration = max(1.5, min(4.0, len(text) * 0.08))
-                    print(f"   Animating: {move}")
-                    asyncio.run(self._play_recorded_move(move, duration))
-                else:
-                    print(f"   Gentle mode: lip sync")
-                    asyncio.run(self.lip_sync.speak_phrase(text, emotion))
-            except Exception as e:
-                print(f"⚠️ Animation error: {e}")
+        # Wait for animation to complete (with timeout)
+        anim_thread.join(timeout=anim_duration + 2.0)
         
         return speak_result
 
@@ -740,13 +770,15 @@ class ChatAppWithPiper:
                                         max_duration=4.0,
                                         silence_threshold=self.vad_silence,
                                         aggressiveness=self.vad_aggressive,
-                                        trailing_buffer_ms=300
+                                        trailing_buffer_ms=300,
+                                        show_volume=True
                                     )
                                 else:
                                     # Fixed-duration recording - always records 4s
                                     transcription = await asyncio.to_thread(
                                         self.asr_engine.transcribe_from_mic,
-                                        duration=4.0
+                                        duration=4.0,
+                                        show_volume=True
                                     )
                                 
                                 asr_time = time.time() - asr_start

@@ -16,6 +16,8 @@ import os
 import time
 from typing import Optional
 
+import numpy as np
+
 try:
     from faster_whisper import WhisperModel
 except Exception:  # pragma: no cover - runtime optional
@@ -60,17 +62,48 @@ class FasterWhisperASREngine:
         text = "".join(segment.text for segment in segments)
         return text.strip()
 
-    def _record_temp_wav(self, duration: float = 5.0, samplerate: int = 16000) -> str:
+    def _record_temp_wav(self, duration: float = 5.0, samplerate: int = 16000,
+                          show_volume: bool = True) -> str:
+        """Record audio for fixed duration with optional volume visualization.
+        
+        Args:
+            duration: Recording duration in seconds
+            samplerate: Audio sample rate
+            show_volume: Whether to show real-time volume visualization
+        """
         try:
             import sounddevice as sd
             import soundfile as sf
+            import numpy as np
         except Exception as e:
             raise RuntimeError("sounddevice and soundfile are required for recording: pip install sounddevice soundfile") from e
 
         channels = 1
         print(f"🎙️ Recording {duration:.1f}s @ {samplerate}Hz...")
-        data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=channels, dtype='int16')
-        sd.wait()
+        
+        if show_volume:
+            # Record with volume visualization
+            frames = []
+            chunk_duration = 0.05  # 50ms chunks for smooth visualization
+            chunk_samples = int(samplerate * chunk_duration)
+            total_chunks = int(duration / chunk_duration)
+            
+            with sd.InputStream(samplerate=samplerate, channels=channels, dtype='int16') as stream:
+                for _ in range(total_chunks):
+                    data, _ = stream.read(chunk_samples)
+                    frames.append(data)
+                    
+                    # Calculate and display volume
+                    rms = self._calculate_rms(data)
+                    bar = self._draw_volume_bar(rms)
+                    print(f"\r{bar}", end='', flush=True)
+            
+            print()  # New line after volume bar
+            data = np.concatenate(frames, axis=0)
+        else:
+            # Simple recording without visualization
+            data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=channels, dtype='int16')
+            sd.wait()
 
         tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
         tmp_path = tmp.name
@@ -79,9 +112,42 @@ class FasterWhisperASREngine:
         sf.write(tmp_path, data, samplerate=samplerate)
         return tmp_path
 
+    @staticmethod
+    def _calculate_rms(audio_data: np.ndarray) -> float:
+        """Calculate RMS (Root Mean Square) of audio data for volume level."""
+        return np.sqrt(np.mean(audio_data.astype(np.float64) ** 2))
+    
+    @staticmethod
+    def _draw_volume_bar(rms: float, max_width: int = 30) -> str:
+        """Draw ASCII volume bar based on RMS level.
+        
+        Args:
+            rms: RMS value (0-32767 for int16 audio)
+            max_width: Maximum width of the bar in characters
+        
+        Returns:
+            ASCII bar string like "[████████░░░░] -45dB"
+        """
+        # Convert RMS to approximate dB (relative to full scale)
+        # 32767 is max for int16, so dB = 20*log10(rms/32767)
+        if rms < 1:
+            db = -60
+        else:
+            db = 20 * np.log10(rms / 32767)
+        
+        # Normalize to 0-1 range (-60dB to 0dB)
+        normalized = max(0, min(1, (db + 60) / 60))
+        filled = int(normalized * max_width)
+        
+        # Create bar with different characters for visual interest
+        bar_chars = "█" * filled + "░" * (max_width - filled)
+        
+        return f"[{bar_chars}] {db:+.1f}dB"
+    
     def _record_temp_wav_vad(self, max_duration: float = 5.0, samplerate: int = 16000, 
                               silence_threshold: float = 2.0, aggressiveness: int = 1,
-                              trailing_buffer_ms: float = 300) -> str:
+                              trailing_buffer_ms: float = 300,
+                              show_volume: bool = True) -> str:
         """Record using Voice Activity Detection (VAD) - stops when speech ends.
         
         Args:
@@ -90,6 +156,7 @@ class FasterWhisperASREngine:
             silence_threshold: Seconds of silence before stopping
             aggressiveness: VAD aggressiveness 0-3 (0=least aggressive, 3=most aggressive)
             trailing_buffer_ms: Keep this many ms of audio before the silence (for whisper context)
+            show_volume: Whether to show real-time volume visualization
         """
         try:
             import sounddevice as sd
@@ -127,6 +194,13 @@ class FasterWhisperASREngine:
                     
                 frames.append(data)
                 
+                # Calculate and display volume if enabled
+                if show_volume:
+                    rms = self._calculate_rms(data)
+                    bar = self._draw_volume_bar(rms)
+                    # Use \r to return to start of line, \033[K to clear to end
+                    print(f"\r{bar}", end='', flush=True)
+                
                 # Check if frame contains speech
                 is_speech_frame = False
                 try:
@@ -145,11 +219,17 @@ class FasterWhisperASREngine:
                     # Keep trailing buffer: remove some trailing silent frames but keep context
                     if trailing_buffer_frames > 0 and len(frames) > trailing_buffer_frames:
                         frames = frames[:-trailing_buffer_frames]
+                    if show_volume:
+                        print()  # New line after volume bar
                     print(f"🔇 Detected {silence_threshold}s of silence after speech - stopping")
                     break
         
         if not frames:
             raise RuntimeError("No audio captured")
+        
+        # Clear volume bar line if we were showing it
+        if show_volume:
+            print()
         
         audio_data = np.concatenate(frames, axis=0)
         actual_duration = len(audio_data) / samplerate
@@ -178,7 +258,8 @@ class FasterWhisperASREngine:
 
     def transcribe_from_mic_vad(self, max_duration: float = 5.0, samplerate: int = 16000, 
                                  silence_threshold: float = 2.0, aggressiveness: int = 1,
-                                 trailing_buffer_ms: float = 300) -> Optional[str]:
+                                 trailing_buffer_ms: float = 300,
+                                 show_volume: bool = True) -> Optional[str]:
         """Record from mic using VAD then transcribe; returns the transcribed text or None.
         
         Args:
@@ -187,11 +268,12 @@ class FasterWhisperASREngine:
             silence_threshold: Seconds of silence before stopping
             aggressiveness: VAD aggressiveness 0-3 (1=least aggressive/recommended, 3=most aggressive)
             trailing_buffer_ms: Keep this many ms of audio before silence for better transcription
+            show_volume: Whether to show real-time volume visualization
         """
         wav_path = None
         try:
             wav_path = self._record_temp_wav_vad(max_duration, samplerate, silence_threshold,
-                                                  aggressiveness, trailing_buffer_ms)
+                                                  aggressiveness, trailing_buffer_ms, show_volume)
             text = self.transcribe_file(wav_path)
             return text
         finally:

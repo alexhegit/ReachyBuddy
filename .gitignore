@@ -46,3 +46,7 @@ ENV/
 
 # Byte-compiled files
 *.pyc
+
+# Model files (large binaries)
+models/*.onnx
+models/*.onnx.json
