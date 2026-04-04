@@ -516,6 +516,7 @@ class EmotionControllerV71(EmotionControllerV6):
                 # Continuously play moves while TTS is running (like emo_v6/v8)
                 last_move = None
                 used_moves = set()
+                move_counter = 0
                 while not tts_done.is_set():
                     move, _, speed = self._choose_animation_for_emotion(
                         emotion, intensity, avoid_move=last_move, used_moves=used_moves
@@ -538,6 +539,21 @@ class EmotionControllerV71(EmotionControllerV6):
                             print("   🎬 Simple action fallback")
                             self._simple_nod_once()
                         time.sleep(0.8)
+
+                    move_counter += 1
+
+                    # Add explicit body yaw rotation between moves so the robot turns
+                    # (most recorded moves from dances_lib have body_yaw=0)
+                    if not tts_done.is_set() and move_counter % 2 == 1:
+                        try:
+                            import random
+                            angle = random.choice([-0.4, -0.2, 0.2, 0.4])
+                            self.reachy.goto_target(body_yaw=angle, duration=0.4)
+                            time.sleep(0.45)
+                            self.reachy.goto_target(body_yaw=0.0, duration=0.4)
+                            time.sleep(0.45)
+                        except Exception:
+                            pass
 
                     # Small pause between moves
                     if not tts_done.is_set():
@@ -564,6 +580,12 @@ class EmotionControllerV71(EmotionControllerV6):
 
         # Wait for animation to complete (with timeout)
         anim_thread.join(timeout=20.0)
+
+        # Reset body yaw to center so the robot faces forward again
+        try:
+            self.reachy.goto_target(body_yaw=0.0, duration=0.5)
+        except Exception:
+            pass
 
         return speak_result
 
@@ -791,17 +813,20 @@ class ChatAppWithPiper:
         try:
             with ReachyMini(media_backend="no_media") as reachy:
                 print("✅ Connected to Reachy Mini")
-                
+
+                # Disable automatic body yaw so recorded moves can control body rotation
+                reachy.set_automatic_body_yaw(False)
+
                 # Initialize controller with Piper
                 self.controller = EmotionControllerV71(
-                    reachy, 
-                    self.piper_model, 
-                    self.piper_config, 
-                    self.speaker_id, 
+                    reachy,
+                    self.piper_model,
+                    self.piper_config,
+                    self.speaker_id,
                     self.debug,
                     gentle_mode=self.gentle
                 )
-                
+
                 reachy.goto_target(head=create_head_pose(), duration=1.0)
                 await asyncio.sleep(1.0)
 
