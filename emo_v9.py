@@ -352,16 +352,34 @@ class EmotionControllerV71(EmotionControllerV6):
             'thoughtful_tilt': self._simple_thoughtful_tilt,
         }
     
-    def _choose_animation_for_emotion(self, emotion: str, intensity: str):
+    def _get_all_gentle_moves(self):
+        """Collect all gentle moves from every category."""
+        gentle_names = ['calming1', 'serenity1', 'thoughtful1', 'thoughtful2',
+                        'attentive1', 'attentive2']
+        all_gentle = []
+        for category_moves in self.emotion_to_moves.values():
+            for lib, name in category_moves:
+                if name in gentle_names:
+                    all_gentle.append((lib, name))
+        return all_gentle
+
+    def _choose_animation_for_emotion(self, emotion: str, intensity: str,
+                                       avoid_move=None, used_moves=None):
         """Choose animation move based on emotion and intensity.
-        
+
+        Args:
+            avoid_move: Optional last move to avoid repeating immediately.
+            used_moves: Optional set of moves already used this round.
+
         Returns:
             (move, anim_intensity, speed) tuple
         """
+        import random
+
         # Map emotion to category
         category_map = {
             'positive': 'positive',
-            'negative': 'negative', 
+            'negative': 'negative',
             'question': 'question',
             'activity': 'activity',
             'neutral': 'neutral',
@@ -372,37 +390,65 @@ class EmotionControllerV71(EmotionControllerV6):
             'curious': 'question',
         }
         category = category_map.get(emotion, 'neutral')
-        
+
         # Get available moves for this category
-        available = self.emotion_to_moves.get(category, [])
+        available = list(self.emotion_to_moves.get(category, []))
         if not available:
-            available = self.emotion_to_moves.get('neutral', [])
-        
+            available = list(self.emotion_to_moves.get('neutral', []))
+
         # Filter gentle moves if in gentle mode
         if self.gentle_mode:
-            gentle_moves = [(lib, name) for lib, name in available 
-                          if name in ['calming1', 'serenity1', 'thoughtful1', 'attentive1']]
+            gentle_names = ['calming1', 'serenity1', 'thoughtful1', 'thoughtful2',
+                            'attentive1', 'attentive2']
+            gentle_moves = [(lib, name) for lib, name in available if name in gentle_names]
             if gentle_moves:
                 available = gentle_moves
-        
-        # Choose move based on intensity
-        import random
+            else:
+                all_gentle = self._get_all_gentle_moves()
+                if all_gentle:
+                    available = all_gentle
+                else:
+                    available = []
+        else:
+            # Non-gentle: boost variety by also pulling from other categories
+            # if the primary category is running low on fresh moves
+            other_moves = []
+            if used_moves:
+                unused_in_primary = [m for m in available if m not in used_moves]
+                if len(unused_in_primary) < 3:
+                    for cat, moves in self.emotion_to_moves.items():
+                        if cat != category:
+                            other_moves.extend(moves)
+            if other_moves:
+                available = available + other_moves
+
         if not available:
             return None, intensity, 1.0
-            
-        if intensity == 'high' and len(available) > 1:
-            move = available[-1]  # Last (often more intense)
-        elif intensity == 'low' and len(available) > 1:
-            move = available[0]   # First (often gentler)
+
+        # Prefer moves not yet used this round
+        pool = available
+        if used_moves:
+            fresh = [m for m in available if m not in used_moves]
+            if fresh:
+                pool = fresh
+
+        # Also avoid the immediate last move if possible
+        if avoid_move and avoid_move in pool and len(pool) > 1:
+            pool = [m for m in pool if m != avoid_move]
+
+        if intensity == 'high' and len(pool) > 1:
+            move = pool[-1]
+        elif intensity == 'low' and len(pool) > 1:
+            move = pool[0]
         else:
-            move = random.choice(available)
-        
+            move = random.choice(pool)
+
         # Calculate speed
         speed_map = {'high': 1.2, 'medium': 1.0, 'low': 0.8}
         if self.gentle_mode:
             speed_map = {'high': 1.0, 'medium': 0.8, 'low': 0.6}
         speed = speed_map.get(intensity, 1.0)
-        
+
         return move, intensity, speed
     
     def _play_recorded_move(self, move, duration: float = 2.0):
@@ -427,72 +473,98 @@ class EmotionControllerV71(EmotionControllerV6):
         
         self.reachy.play_move(mv, initial_goto_duration=duration)
     
-    def speak_with_interrupt(self, text: str, emotion: str = 'neutral', 
+    def speak_with_interrupt(self, text: str, emotion: str = 'neutral',
                              intensity: str = 'medium', level: float = 0.5,
                              stop_event: threading.Event = None) -> bool:
         """
         Speak with expression and support interrupt.
         TTS and animation run in parallel for natural interaction.
-        
+
         Args:
             stop_event: Threading Event to signal interruption
-        
+
         Returns:
             True if completed without interrupt
             False if interrupted
         """
         print(f"🎙️ Speaking: '{text[:50]}...'")
-        
-        # Determine animation intensity based on emotion
-        move, anim_intensity, speed = self._choose_animation_for_emotion(emotion, intensity)
-        
-        # Calculate animation duration based on text length and intensity
-        # Duration affects how fast the robot moves (lower = faster/more dynamic)
-        base_duration = max(1.5, min(4.0, len(text) * 0.08))
-        # Apply speed multiplier (higher speed = lower duration = faster movement)
-        anim_duration = base_duration / speed
-        
+
+        # Use shorter move durations for more dynamic action (like emo_v6)
+        duration_map = {'high': 0.8, 'medium': 1.0, 'low': 1.2}
+        if self.gentle_mode:
+            duration_map = {'high': 1.0, 'medium': 1.3, 'low': 1.5}
+        base_move_duration = duration_map.get(intensity, 1.0)
+
         # Run TTS and animation in parallel
         import threading
-        
+
+        tts_done = threading.Event()
+
         def animation_thread():
             """Run animation in separate thread."""
             try:
-                if move and not self.gentle_mode:
-                    print(f"   🎬 Animating: {move} (duration: {anim_duration:.1f}s, speed: {speed:.1f}x)")
-                    # _play_recorded_move is synchronous - use anim_duration for initial_goto
-                    self._play_recorded_move(move, anim_duration)
-                    print(f"   ✅ Animation completed")
+                emotion_level = 0.5 if emotion == 'neutral' else 0.8
+
+                if self.gentle_mode:
+                    print(f"   😌 Gentle mode: subtle lip sync and gentle moves")
                 else:
-                    if self.gentle_mode:
-                        print(f"   😌 Gentle mode: subtle lip sync only")
+                    print(f"   🎵 Starting lip sync and continuous animations")
+
+                # Always start lip sync so the robot keeps moving during the whole speech
+                self.lip_sync.start_lip_sync(text, emotion_level)
+
+                # Continuously play moves while TTS is running (like emo_v6/v8)
+                last_move = None
+                used_moves = set()
+                while not tts_done.is_set():
+                    move, _, speed = self._choose_animation_for_emotion(
+                        emotion, intensity, avoid_move=last_move, used_moves=used_moves
+                    )
+                    if move:
+                        last_move = move
+                        used_moves.add(move)
+                        move_duration = base_move_duration / speed
+                        if not self.gentle_mode:
+                            print(f"   🎬 Animating: {move} (duration: {move_duration:.1f}s, speed: {speed:.1f}x)")
+                        else:
+                            print(f"   🎬 Gentle move: {move} (duration: {move_duration:.1f}s, speed: {speed:.1f}x)")
+                        self._play_recorded_move(move, move_duration)
                     else:
-                        print(f"   🎭 No move selected, using lip sync")
-                    # Use LipSyncControllerV5 API
-                    emotion_level = 0.5 if emotion == 'neutral' else 0.8
-                    print(f"   🎵 Starting lip sync (emotion_level: {emotion_level})")
-                    self.lip_sync.start_lip_sync(text, emotion_level)
-                    # Keep lip sync running for estimated speech duration
-                    time.sleep(anim_duration)
-                    self.lip_sync.stop_lip_sync()
-                    print(f"   ✅ Lip sync completed")
+                        # No move available, fallback to simple actions (gentle if needed)
+                        if self.gentle_mode:
+                            print("   🎬 Gentle simple action")
+                            self._simple_thoughtful_tilt_once()
+                        else:
+                            print("   🎬 Simple action fallback")
+                            self._simple_nod_once()
+                        time.sleep(0.8)
+
+                    # Small pause between moves
+                    if not tts_done.is_set():
+                        time.sleep(0.3)
+
+                self.lip_sync.stop_lip_sync()
+                print(f"   ✅ Animations completed")
             except Exception as e:
                 print(f"⚠️ Animation error: {e}")
                 import traceback
                 traceback.print_exc()
-        
+                self.lip_sync.stop_lip_sync()
+
         # Start animation in background thread
         anim_thread = threading.Thread(target=animation_thread, daemon=True)
         anim_thread.start()
-        
+
         # Run TTS (blocking with interrupt support)
         speak_result = self.tts_engine.speak_with_interrupt(
             text, emotion=emotion, stop_event=stop_event
         )
-        
+
+        tts_done.set()
+
         # Wait for animation to complete (with timeout)
-        anim_thread.join(timeout=anim_duration + 2.0)
-        
+        anim_thread.join(timeout=20.0)
+
         return speak_result
 
 
