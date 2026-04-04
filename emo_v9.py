@@ -391,49 +391,46 @@ class EmotionControllerV71(EmotionControllerV6):
         }
         category = category_map.get(emotion, 'neutral')
 
-        # Get available moves for this category
-        available = list(self.emotion_to_moves.get(category, []))
-        if not available:
-            available = list(self.emotion_to_moves.get('neutral', []))
+        # Build pool: 60% weight to primary category, 40% to all others combined
+        primary = list(self.emotion_to_moves.get(category, []))
+        if not primary:
+            primary = list(self.emotion_to_moves.get('neutral', []))
+
+        all_others = []
+        for cat, moves in self.emotion_to_moves.items():
+            if cat != category:
+                all_others.extend(moves)
+
+        # Create weighted pool (3x primary vs 2x others ≈ 60/40)
+        pool = primary * 3 + all_others * 2
 
         # Filter gentle moves if in gentle mode
         if self.gentle_mode:
             gentle_names = ['calming1', 'serenity1', 'thoughtful1', 'thoughtful2',
                             'attentive1', 'attentive2']
-            gentle_moves = [(lib, name) for lib, name in available if name in gentle_names]
-            if gentle_moves:
-                available = gentle_moves
+            gentle_pool = [m for m in pool if m[1] in gentle_names]
+            if gentle_pool:
+                pool = gentle_pool
             else:
                 all_gentle = self._get_all_gentle_moves()
                 if all_gentle:
-                    available = all_gentle
+                    pool = all_gentle * 3
                 else:
-                    available = []
-        else:
-            # Non-gentle: boost variety by also pulling from other categories
-            # if the primary category is running low on fresh moves
-            other_moves = []
-            if used_moves:
-                unused_in_primary = [m for m in available if m not in used_moves]
-                if len(unused_in_primary) < 3:
-                    for cat, moves in self.emotion_to_moves.items():
-                        if cat != category:
-                            other_moves.extend(moves)
-            if other_moves:
-                available = available + other_moves
+                    return None, intensity, 1.0
 
-        if not available:
+        if not pool:
             return None, intensity, 1.0
 
-        # Prefer moves not yet used this round
-        pool = available
+        # Prefer unused moves; reset tracking when pool is exhausted
         if used_moves:
-            fresh = [m for m in available if m not in used_moves]
+            fresh = [m for m in pool if m not in used_moves]
             if fresh:
                 pool = fresh
+            else:
+                used_moves.clear()
 
-        # Also avoid the immediate last move if possible
-        if avoid_move and avoid_move in pool and len(pool) > 1:
+        # Avoid immediate repetition if possible
+        if avoid_move and avoid_move in pool and len(set(pool)) > 1:
             pool = [m for m in pool if m != avoid_move]
 
         if intensity == 'high' and len(pool) > 1:
@@ -450,6 +447,54 @@ class EmotionControllerV71(EmotionControllerV6):
         speed = speed_map.get(intensity, 1.0)
 
         return move, intensity, speed
+
+    def _execute_random_combined_action(self, emotion: str):
+        """Execute a random combined simple action for richer variety."""
+        import random
+        category_map = {
+            'positive': 'positive', 'negative': 'negative',
+            'question': 'question', 'activity': 'activity',
+            'neutral': 'neutral', 'happy': 'positive',
+            'sad': 'negative', 'angry': 'negative',
+            'excited': 'activity', 'curious': 'question',
+        }
+        cat = category_map.get(emotion, 'neutral')
+
+        sequences = {
+            'positive': [
+                self._combined_nod_blink,
+                self._combined_shake_blink_yaw,
+                self._combined_wiggle_blink,
+                self._combined_happy_tilt_blink_yaw,
+                self._combined_excited_sequence,
+            ],
+            'negative': [
+                self._combined_sad_blink,
+                self._combined_thoughtful_blink_yaw,
+                self._combined_slow_sequence,
+                self._combined_negative_gesture,
+            ],
+            'question': [
+                self._combined_curious_blink,
+                self._combined_thoughtful_blink_yaw,
+                self._combined_question_sequence,
+                self._combined_nod_blink,
+            ],
+            'activity': [
+                self._combined_wiggle_blink,
+                self._combined_shake_blink_yaw,
+                self._combined_activity_sequence,
+                self._combined_happy_tilt_blink_yaw,
+            ],
+            'neutral': [
+                self._combined_nod_blink,
+                self._combined_thoughtful_blink_yaw,
+                self._combined_neutral_sequence,
+                self._combined_curious_blink,
+            ],
+        }
+        actions = sequences.get(cat, [self._combined_nod_blink])
+        random.choice(actions)()
     
     def _play_recorded_move(self, move, duration: float = 2.0):
         """Execute a recorded move."""
@@ -516,41 +561,50 @@ class EmotionControllerV71(EmotionControllerV6):
                 # Continuously play moves while TTS is running (like emo_v6/v8)
                 last_move = None
                 used_moves = set()
-                move_counter = 0
                 while not tts_done.is_set():
-                    move, _, speed = self._choose_animation_for_emotion(
-                        emotion, intensity, avoid_move=last_move, used_moves=used_moves
-                    )
-                    if move:
-                        last_move = move
-                        used_moves.add(move)
-                        move_duration = base_move_duration / speed
-                        if not self.gentle_mode:
-                            print(f"   🎬 Animating: {move} (duration: {move_duration:.1f}s, speed: {speed:.1f}x)")
-                        else:
-                            print(f"   🎬 Gentle move: {move} (duration: {move_duration:.1f}s, speed: {speed:.1f}x)")
-                        self._play_recorded_move(move, move_duration)
-                    else:
-                        # No move available, fallback to simple actions (gentle if needed)
-                        if self.gentle_mode:
-                            print("   🎬 Gentle simple action")
-                            self._simple_thoughtful_tilt_once()
+                    import random
+                    # Randomly choose action type for richer variety:
+                    # 0-49% recorded move, 50-74% combined action, 75-99% body yaw
+                    roll = random.randint(0, 99)
+
+                    if roll < 50:
+                        move, _, speed = self._choose_animation_for_emotion(
+                            emotion, intensity, avoid_move=last_move, used_moves=used_moves
+                        )
+                        if move:
+                            last_move = move
+                            used_moves.add(move)
+                            move_duration = base_move_duration / speed
+                            if not self.gentle_mode:
+                                print(f"   🎬 Animating: {move} (duration: {move_duration:.1f}s, speed: {speed:.1f}x)")
+                            else:
+                                print(f"   🎬 Gentle move: {move} (duration: {move_duration:.1f}s, speed: {speed:.1f}x)")
+                            self._play_recorded_move(move, move_duration)
                         else:
                             print("   🎬 Simple action fallback")
                             self._simple_nod_once()
-                        time.sleep(0.8)
-
-                    move_counter += 1
-
-                    # Add explicit body yaw rotation between moves so the robot turns
-                    # (most recorded moves from dances_lib have body_yaw=0)
-                    if not tts_done.is_set() and move_counter % 2 == 1:
+                            time.sleep(0.8)
+                    elif roll < 75:
+                        if not self.gentle_mode:
+                            print("   🎭 Combined action")
+                            self._execute_random_combined_action(emotion)
+                        else:
+                            print("   🎭 Gentle combined action")
+                            self._simple_thoughtful_tilt_once()
+                            time.sleep(0.8)
+                    else:
+                        # Body yaw rotation with slight head tilt for more natural movement
+                        print("   🔄 Body turn")
                         try:
-                            import random
-                            angle = random.choice([-0.4, -0.2, 0.2, 0.4])
-                            self.reachy.goto_target(body_yaw=angle, duration=0.4)
+                            angle = random.choice([-0.5, -0.25, 0.25, 0.5])
+                            head_tilt = random.choice([
+                                create_head_pose(),
+                                create_head_pose(roll=10, degrees=True),
+                                create_head_pose(roll=-10, degrees=True),
+                            ])
+                            self.reachy.goto_target(head=head_tilt, body_yaw=angle, duration=0.4)
                             time.sleep(0.45)
-                            self.reachy.goto_target(body_yaw=0.0, duration=0.4)
+                            self.reachy.goto_target(head=create_head_pose(), body_yaw=0.0, duration=0.4)
                             time.sleep(0.45)
                         except Exception:
                             pass
