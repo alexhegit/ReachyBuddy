@@ -27,3 +27,8 @@ webrtcvad-wheels>=2.0.14
 
 # Piper TTS (Offline)
 piper-tts>=1.4.0
+
+# Vision capabilities (optional)
+# Required for face tracking, gesture recognition, etc.
+# mediapipe>=0.10.0
+# opencv-python>=4.8.0
