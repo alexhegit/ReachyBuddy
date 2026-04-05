@@ -34,7 +34,7 @@ from emo_v9 import (
 
 # Import vision module
 try:
-    from vision import VisionController, VisionConfig, PointTracker, PointingResult
+    from vision import VisionController, VisionConfig
     VISION_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️ Vision module not available: {e}")
@@ -61,10 +61,6 @@ class ChatAppWithVision(ChatAppWithPiper):
     def __init__(
         self,
         vision_enabled: bool = True,
-        vision_mode: Optional[str] = None,
-        enable_face: bool = True,
-        enable_hand: bool = False,
-        enable_object: bool = False,
         vision_fps: float = 15.0,
         vision_auto_wake: bool = True,
         *args,
@@ -73,18 +69,13 @@ class ChatAppWithVision(ChatAppWithPiper):
         super().__init__(*args, **kwargs)
         
         self.vision_enabled = vision_enabled and VISION_AVAILABLE
-        self.vision_mode = vision_mode
-        self.enable_face = enable_face
-        self.enable_hand = enable_hand
-        self.enable_object = enable_object
         
         self.vision: Optional[VisionController] = None
-        self.point_tracker: Optional[PointTracker] = None
         self._vision_config = VisionConfig(
             enabled=self.vision_enabled,
-            face_tracking=enable_face,
+            face_tracking=True,
             target_fps=vision_fps,
-            auto_wake=vision_auto_wake and enable_face,  # Only auto-wake if face enabled
+            auto_wake=vision_auto_wake,
             track_while_speaking=True
         )
         
@@ -92,7 +83,6 @@ class ChatAppWithVision(ChatAppWithPiper):
         self._person_present = False
         self._face_tracking_active = False
         self._is_speaking = False  # Track speaking state for idle face tracking
-        self._is_pointing = False  # Track if user is pointing
     
     async def start_chat_async(self):
         """Start chat with vision capabilities."""
@@ -101,13 +91,8 @@ class ChatAppWithVision(ChatAppWithPiper):
         print("=" * 60)
         
         if self.vision_enabled:
-            print(f"👁️  Vision features: ENABLED (mode: {self.vision_mode})")
-            if self.enable_face:
-                print(f"   - Face tracking: Yes")
-            if self.enable_hand:
-                print(f"   - Hand gestures: Yes")
-            if self.enable_object:
-                print(f"   - Object detection: Yes")
+            print(f"👁️  Vision features: ENABLED")
+            print(f"   - Face tracking: Yes")
             print(f"   - Target FPS: {self._vision_config.target_fps}")
             print(f"   - Auto wake: {self._vision_config.auto_wake}")
         else:
@@ -131,24 +116,10 @@ class ChatAppWithVision(ChatAppWithPiper):
                 
                 # Initialize vision controller
                 if self.vision_enabled:
-                    # Create vision controller for camera access (always needed for vision)
                     self.vision = VisionController(reachy, self._vision_config)
                     self._setup_vision_callbacks()
                     self.vision.start()
-                    
-                    # Face tracking
-                    if self.enable_face:
-                        self._start_idle_face_tracking(reachy)
-                    
-                    # Hand pointing tracking
-                    if self.enable_hand:
-                        print("   👉 Initializing hand pointing tracker...")
-                        self.point_tracker = PointTracker(
-                            mode='loose',
-                            min_detection_confidence=0.5,  # Easier detection
-                            tip_extension_ratio=1.05
-                        )
-                        self._start_pointing_tracking(reachy)
+                    self._start_idle_face_tracking(reachy)
                 
                 # Initialize emotion controller (from v9)
                 self.controller = EmotionControllerV71(
@@ -299,87 +270,6 @@ class ChatAppWithVision(ChatAppWithPiper):
         tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
         tracker_thread.start()
         print("   ✅ Ultra-smooth face tracking started")
-    
-    def _start_pointing_tracking(self, reachy):
-        """Start background thread for hand pointing detection and tracking.
-        
-        When user points with index finger, robot looks at the pointed location.
-        """
-        import threading
-        
-        if not self.point_tracker:
-            return
-        
-        def pointing_tracker():
-            """Detect pointing and make robot follow finger."""
-            print("   👉 Pointing tracking started")
-            
-            last_point_pos: Optional[Tuple[int, int]] = None
-            pointing_stable_count = 0
-            min_stable_frames = 3  # Must be pointing for 3 frames
-            frame_count = 0
-            
-            while self.point_tracker:
-                # Get frame from camera
-                if self.vision and self.vision._camera:
-                    frame = self.vision._get_frame()
-                    frame_count += 1
-                    
-                    # Log first few frames for debugging
-                    if frame_count <= 3:
-                        print(f"      📷 Frame {frame_count}: {'got frame' if frame is not None else 'no frame'}")
-                    
-                    if frame is not None:
-                        # Enable debug for first 30 frames to diagnose issues
-                        debug_mode = frame_count <= 30
-                        result = self.point_tracker.detect_pointing(frame, debug=debug_mode)
-                        
-                        if result:
-                            self._is_pointing = True
-                            pointing_stable_count += 1
-                            
-                            # Log when pointing detected
-                            if pointing_stable_count == min_stable_frames:
-                                print(f"      ✋ Hand detected: {result.hand_side} hand pointing")
-                            
-                            # Only react after stable detection
-                            if pointing_stable_count >= min_stable_frames:
-                                tip_x, tip_y = result.index_tip
-                                
-                                # Check if position changed significantly
-                                should_update = True
-                                if last_point_pos:
-                                    dx = abs(tip_x - last_point_pos[0])
-                                    dy = abs(tip_y - last_point_pos[1])
-                                    if dx < 30 and dy < 30:  # 30px threshold
-                                        should_update = False
-                                
-                                if should_update:
-                                    try:
-                                        print(f"   👉 Pointing at ({tip_x}, {tip_y})")
-                                        reachy.look_at_image(tip_x, tip_y, duration=0.3)
-                                        last_point_pos = (tip_x, tip_y)
-                                    except Exception as e:
-                                        if self.debug:
-                                            print(f"      ⚠️ look_at_image failed: {e}")
-                        else:
-                            # Not pointing
-                            if self._is_pointing and pointing_stable_count > 0:
-                                if self.debug:
-                                    print("   👉 Stopped pointing")
-                            self._is_pointing = False
-                            pointing_stable_count = 0
-                            last_point_pos = None
-                else:
-                    if frame_count == 0:
-                        print("      ⚠️ Camera not available for pointing")
-                    frame_count = 1  # Only print once
-                
-                time.sleep(0.05)  # 20 FPS for responsive pointing
-        
-        point_thread = threading.Thread(target=pointing_tracker, daemon=True)
-        point_thread.start()
-        print("   ✅ Pointing tracking thread started")
     
     def _speak_and_animate_with_vision(
         self,
@@ -750,8 +640,8 @@ def main():
         nargs='?',
         const='all',
         default=None,
-        choices=['all', 'face', 'hand', 'object'],
-        help='Enable vision features: face (face tracking), hand (gesture, future), object (future), all (all features). Default: disabled'
+        choices=['all', 'face'],
+        help='Enable vision features: face (face tracking), all (face tracking). Default: disabled'
     )
     parser.add_argument(
         '--vision-fps',
@@ -786,29 +676,15 @@ def main():
     
     # Determine vision mode
     # Default is None (disabled), --vision enables it
-    vision_mode = args.vision  # None, 'all', 'face', 'hand', or 'object'
-    
-    # Feature flags based on mode
-    enable_face = vision_mode in ['all', 'face']
-    enable_hand = vision_mode in ['all', 'hand']  # Future
-    enable_object = vision_mode in ['all', 'object']  # Future
-    
-    vision_enabled = vision_mode is not None
+    vision_enabled = args.vision is not None
     
     # Print vision mode info
     if vision_enabled:
-        print(f"👁️  Vision mode: {vision_mode}")
-        print(f"   - Face tracking: {'✅' if enable_face else '❌'}")
-        print(f"   - Hand gestures: {'✅' if enable_hand else '❌'}")
-        print(f"   - Object detection: {'✅' if enable_object else '❌'}")
+        print(f"👁️  Vision features: ENABLED (face tracking)")
     
     # Create app
     app = ChatAppWithVision(
         vision_enabled=vision_enabled,
-        vision_mode=vision_mode,
-        enable_face=enable_face,
-        enable_hand=enable_hand,
-        enable_object=enable_object,
         vision_fps=args.vision_fps,
         vision_auto_wake=not args.no_auto_wake,
         model=args.model,

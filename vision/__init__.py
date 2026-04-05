@@ -2,21 +2,16 @@
 
 This module provides computer vision capabilities including:
 - Face detection and tracking
-- Gesture recognition
-- Emotion analysis
-- Visual question answering
 
 Example:
-    >>> from vision import VisionController, VisionConfig
-    >>> config = VisionConfig(enabled=True, face_tracking=True)
-    >>> controller = VisionController(reachy, config)
+    >>> from vision import VisionController
+    >>> controller = VisionController(reachy, enabled=True)
     >>> controller.start()
-    >>> face_pos = controller.get_face_position()
+    >>> face_pos = controller.face_tracker.get_position()
 """
 
 from .controller import VisionController, VisionConfig, VisionState
 from .face_tracker import FaceTracker, FaceTrackerThread
-from .point_tracker import PointTracker, PointingResult
 
 __all__ = [
     'VisionController',
@@ -24,6 +19,4 @@ __all__ = [
     'VisionState',
     'FaceTracker',
     'FaceTrackerThread',
-    'PointTracker',
-    'PointingResult',
 ]
