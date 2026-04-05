@@ -34,7 +34,7 @@ from emo_v9 import (
 
 # Import vision module
 try:
-    from vision import VisionController, VisionConfig
+    from vision import VisionController, VisionConfig, PointTracker, PointingResult
     VISION_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️ Vision module not available: {e}")
@@ -79,6 +79,7 @@ class ChatAppWithVision(ChatAppWithPiper):
         self.enable_object = enable_object
         
         self.vision: Optional[VisionController] = None
+        self.point_tracker: Optional[PointTracker] = None
         self._vision_config = VisionConfig(
             enabled=self.vision_enabled,
             face_tracking=enable_face,
@@ -91,6 +92,7 @@ class ChatAppWithVision(ChatAppWithPiper):
         self._person_present = False
         self._face_tracking_active = False
         self._is_speaking = False  # Track speaking state for idle face tracking
+        self._is_pointing = False  # Track if user is pointing
     
     async def start_chat_async(self):
         """Start chat with vision capabilities."""
@@ -129,13 +131,17 @@ class ChatAppWithVision(ChatAppWithPiper):
                 
                 # Initialize vision controller
                 if self.vision_enabled:
-                    self.vision = VisionController(reachy, self._vision_config)
-                    self._setup_vision_callbacks()
-                    self.vision.start()
-                    
-                    # Start idle face tracking thread (if face tracking enabled)
+                    # Face tracking
                     if self.enable_face:
+                        self.vision = VisionController(reachy, self._vision_config)
+                        self._setup_vision_callbacks()
+                        self.vision.start()
                         self._start_idle_face_tracking(reachy)
+                    
+                    # Hand pointing tracking
+                    if self.enable_hand:
+                        self.point_tracker = PointTracker(mode='loose')
+                        self._start_pointing_tracking(reachy)
                 
                 # Initialize emotion controller (from v9)
                 self.controller = EmotionControllerV71(
@@ -286,6 +292,68 @@ class ChatAppWithVision(ChatAppWithPiper):
         tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
         tracker_thread.start()
         print("   ✅ Ultra-smooth face tracking started")
+    
+    def _start_pointing_tracking(self, reachy):
+        """Start background thread for hand pointing detection and tracking.
+        
+        When user points with index finger, robot looks at the pointed location.
+        """
+        import threading
+        
+        if not self.point_tracker:
+            return
+        
+        def pointing_tracker():
+            """Detect pointing and make robot follow finger."""
+            print("   👉 Pointing tracking started")
+            
+            last_point_pos: Optional[Tuple[int, int]] = None
+            pointing_stable_count = 0
+            min_stable_frames = 3  # Must be pointing for 3 frames
+            
+            while self.point_tracker:
+                # Get frame from camera
+                if self.vision and self.vision._camera:
+                    frame = self.vision._get_frame()
+                    if frame is not None:
+                        result = self.point_tracker.detect_pointing(frame)
+                        
+                        if result:
+                            self._is_pointing = True
+                            pointing_stable_count += 1
+                            
+                            # Only react after stable detection
+                            if pointing_stable_count >= min_stable_frames:
+                                tip_x, tip_y = result.index_tip
+                                
+                                # Check if position changed significantly
+                                should_update = True
+                                if last_point_pos:
+                                    dx = abs(tip_x - last_point_pos[0])
+                                    dy = abs(tip_y - last_point_pos[1])
+                                    if dx < 30 and dy < 30:  # 30px threshold
+                                        should_update = False
+                                
+                                if should_update:
+                                    try:
+                                        print(f"   👉 Pointing at ({tip_x}, {tip_y})")
+                                        reachy.look_at_image(tip_x, tip_y, duration=0.3)
+                                        last_point_pos = (tip_x, tip_y)
+                                    except Exception:
+                                        pass
+                        else:
+                            # Not pointing
+                            if self._is_pointing and pointing_stable_count > 0:
+                                print("   👉 Stopped pointing")
+                            self._is_pointing = False
+                            pointing_stable_count = 0
+                            last_point_pos = None
+                
+                time.sleep(0.05)  # 20 FPS for responsive pointing
+        
+        point_thread = threading.Thread(target=pointing_tracker, daemon=True)
+        point_thread.start()
+        print("   ✅ Pointing tracking thread started")
     
     def _speak_and_animate_with_vision(
         self,

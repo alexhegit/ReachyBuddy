@@ -16,6 +16,7 @@ Example:
 
 from .controller import VisionController, VisionConfig, VisionState
 from .face_tracker import FaceTracker, FaceTrackerThread
+from .point_tracker import PointTracker, PointingResult
 
 __all__ = [
     'VisionController',
@@ -23,4 +24,6 @@ __all__ = [
     'VisionState',
     'FaceTracker',
     'FaceTrackerThread',
+    'PointTracker',
+    'PointingResult',
 ]
