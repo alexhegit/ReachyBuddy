@@ -1,92 +1,92 @@
-# Reachy Mini Chat v9 - 后续开发 Todo 列表
+# Reachy Mini Chat v9 - Development Todo List
 
-> 当前版本：emo_v9.py (dev 分支)  
-> 状态：开发暂停，以下功能待后续实现
-
----
-
-## 🎯 高优先级
-
-### 1. 多语言 TTS 自动切换 ⭐
-- **描述**: 根据 ASR 检测到的语言自动切换中文/英文 Piper 模型
-- **现状**: 需要手动 `--piper-model` 切换
-- **方案**: 
-  - 使用 faster-whisper 的语言检测功能
-  - 配置中英文模型路径映射
-  - 自动选择对应语言的 TTS 模型
-
-### 2. 录音音量可视化 ✅ 已完成
-- **描述**: 录音时显示实时音量条
-- **用途**: 方便用户确认麦克风正常工作，调试 VAD 问题
-- **实现**: 
-  - 新增 `_calculate_rms()` 计算音频 RMS 值
-  - 新增 `_draw_volume_bar()` 绘制 ASCII 音量条 `[████████░░░░] -45dB`
-  - 支持 VAD 和固定时长两种录音模式
-  - 使用 `\r` 回车实现单行实时更新
+> Current version: emo_v9.py (v9 branch)  
+> Status: Development paused; features below are pending implementation
 
 ---
 
-## 🔧 中优先级
+## 🎯 High Priority
 
-### 3. 语音打断 (Barge-in)
-- **描述**: TTS 播放时，用户可以直接说话打断机器人
-- **技术点**: 
-  - 需要在播放音频的同时监听麦克风
-  - 检测到人声时立即停止 TTS 并进入 ASR 模式
+### 1. Multilingual TTS Auto-switching ⭐
+- **Description**: Automatically switch between Chinese/English Piper models based on ASR-detected language
+- **Current state**: Requires manual `--piper-model` switching
+- **Plan**:
+  - Use faster-whisper language detection
+  - Configure Chinese-English model path mappings
+  - Automatically select the corresponding TTS model
 
-### 4. 配置持久化
-- **描述**: 使用 `config.json` 保存常用设置
-- **包含**: 
-  - 默认模型选择 (LLM/ASR/TTS)
-  - VAD 参数 (silence/aggressiveness)
-  - 历史记录开关
-  - 机器人连接配置
-- **扩展**: 历史记录保存到文件，重启后恢复对话上下文
-
----
-
-## 💡 低优先级/优化项
-
-### 5. TTS 语速调节
-- **命令行**: `--tts-speed` 参数 (0.5-2.0)
-- **实现**: Piper 支持语速调节参数
-
-### 6. 日志系统
-- **描述**: 使用 Python `logging` 模块替代 print
-- **参数**: `--log-level` (DEBUG/INFO/WARNING/ERROR)
-- **好处**: 更好的调试支持，日志文件记录
-
-### 7. 语音活动检测 (VAD) 进一步优化
-- 尝试 Silero VAD 替代 webrtcvad
-- 支持流式 ASR (边录边识别，减少延迟)
-
-### 8. 交互式配置向导
-- 首次运行时引导用户配置：
-  - 检测可用的 Piper 模型
-  - 测试麦克风/扬声器
-  - 选择默认语言
+### 2. Recording Volume Visualization ✅ Completed
+- **Description**: Display a real-time ASCII volume bar during recording
+- **Purpose**: Help users confirm the microphone is working and debug VAD issues
+- **Implementation**:
+  - Added `_calculate_rms()` to compute audio RMS values
+  - Added `_draw_volume_bar()` to render ASCII bars `[████████░░░░] -45dB`
+  - Supports both VAD and fixed-duration recording modes
+  - Uses `\r` carriage return for single-line live updates
 
 ---
 
-## 🐛 已知问题 (待修复)
+## 🔧 Medium Priority
 
-| 问题 | 状态 | 临时解决方案 |
-|------|------|-------------|
-| VAD 可能截断语音 | ✅ 已缓解 | 使用 `--vad-silence 1.5 --vad-aggressive 1` 或 `--no-vad` |
-| Ctrl+C 偶发卡顿 | ✅ 已修复 | 使用 `asyncio.to_thread()` 包装阻塞调用 |
+### 3. Voice Barge-in
+- **Description**: Allow users to interrupt the robot by speaking while TTS is playing
+- **Technical notes**:
+  - Need to monitor the microphone while audio is playing
+  - Stop TTS immediately upon detecting human voice and switch to ASR mode
 
----
-
-## 📋 当前功能清单 (已实现)
-
-- [x] Piper TTS 离线语音合成
-- [x] faster-whisper ASR (支持 model 选择)
-- [x] VAD 动态录音 (`--vad-silence`, `--vad-aggressive`, `--no-vad`)
-- [x] 对话历史管理 (`--history-size`, `--no-history`, `clear` 命令)
-- [x] 性能计时统计 (`--debug` 模式)
-- [x] 机器人表情控制集成
-- [x] 异步架构，支持并发处理
+### 4. Configuration Persistence
+- **Description**: Save common settings to `config.json`
+- **Includes**:
+  - Default model selections (LLM / ASR / TTS)
+  - VAD parameters (silence / aggressiveness)
+  - History toggle
+  - Robot connection settings
+- **Extension**: Persist conversation history to a file so context survives restarts
 
 ---
 
-*最后更新: 2026-03-31*
+## 💡 Low Priority / Optimizations
+
+### 5. TTS Speed Adjustment
+- **CLI**: `--tts-speed` parameter (0.5–2.0)
+- **Implementation**: Piper supports speed control parameters
+
+### 6. Logging System
+- **Description**: Replace `print` statements with Python `logging`
+- **CLI**: `--log-level` (DEBUG / INFO / WARNING / ERROR)
+- **Benefits**: Better debugging support and log file recording
+
+### 7. Further VAD Optimization
+- Evaluate Silero VAD as an alternative to webrtcvad
+- Support streaming ASR (recognize while recording to reduce latency)
+
+### 8. Interactive Configuration Wizard
+- On first run, guide the user through:
+  - Detecting available Piper models
+  - Testing microphone and speaker
+  - Selecting the default language
+
+---
+
+## 🐛 Known Issues (Pending Fixes)
+
+| Issue | Status | Temporary Workaround |
+|-------|--------|----------------------|
+| VAD may cut off speech | ✅ Mitigated | Use `--vad-silence 1.5 --vad-aggressive 1` or `--no-vad` |
+| Occasional Ctrl+C stutter | ✅ Fixed | Wrap blocking calls with `asyncio.to_thread()` |
+
+---
+
+## 📋 Feature Checklist (Already Implemented)
+
+- [x] Piper TTS offline speech synthesis
+- [x] faster-whisper ASR (with model selection)
+- [x] VAD dynamic recording (`--vad-silence`, `--vad-aggressive`, `--no-vad`)
+- [x] Conversation history management (`--history-size`, `--no-history`, `clear` command)
+- [x] Performance timing statistics (`--debug` mode)
+- [x] Robot emotion control integration
+- [x] Asynchronous architecture with concurrency support
+
+---
+
+*Last updated: 2026-03-31*

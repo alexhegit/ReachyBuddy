@@ -34,7 +34,7 @@ Code snapshot
 ```python
 # emo_v1: basic analysis
 text_lower = text.lower()
-if any(w in text_lower for w in ["跳舞", "舞蹈"]):
+if any(w in text_lower for w in ["dance", "dancing"]):
     emotion = "activity"
 controller.perform_high_amplitude_action(emotion)
 ```
