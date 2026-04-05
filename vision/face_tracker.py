@@ -27,7 +27,7 @@ class FaceTracker:
         self,
         model_selection: int = 0,
         min_detection_confidence: float = 0.5,
-        smooth_factor: float = 0.35,  # Balanced smoothness
+        smooth_factor: float = 0.45,  # More responsive for low latency
         multi_face_strategy: str = "largest"  # "largest", "center", "leftmost"
     ):
         self.model_selection = model_selection
