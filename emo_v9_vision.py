@@ -172,7 +172,7 @@ class ChatAppWithVision(ChatAppWithPiper):
         """Start background thread for continuous face tracking during idle.
         
         When robot is not speaking, continuously look at user's face.
-        When speaking, let animation loop handle face tracking.
+        Uses position thresholding to avoid micro-jitter.
         """
         import threading
         
@@ -180,24 +180,44 @@ class ChatAppWithVision(ChatAppWithPiper):
             """Continuously track face when idle."""
             print("   👁️  Idle face tracking started")
             
+            last_target_pos: Optional[Tuple[int, int]] = None
+            position_threshold = 50  # pixels - only update if moved more than this
+            
             while self.vision and self.vision._running:
                 # Only track when not speaking (idle mode)
                 if not self._is_speaking:
                     if self.vision.is_person_present():
                         if pos := self.vision.get_face_position():
-                            try:
-                                reachy.look_at_image(pos[0], pos[1], duration=0.2)
-                            except Exception:
-                                pass
+                            # Check if position changed significantly
+                            should_update = True
+                            if last_target_pos:
+                                dx = abs(pos[0] - last_target_pos[0])
+                                dy = abs(pos[1] - last_target_pos[1])
+                                if dx < position_threshold and dy < position_threshold:
+                                    should_update = False
+                            
+                            if should_update:
+                                try:
+                                    # Use longer duration for smoother movement
+                                    reachy.look_at_image(pos[0], pos[1], duration=0.8)
+                                    last_target_pos = pos
+                                    if self.debug:
+                                        print(f"   👁️  Tracking face ({pos[0]}, {pos[1]})")
+                                except Exception:
+                                    pass
                     else:
                         # No person - look at center (neutral)
-                        try:
-                            reachy.goto_target(head=create_head_pose(), duration=0.5)
-                        except Exception:
-                            pass
+                        if last_target_pos is not None:
+                            try:
+                                reachy.goto_target(head=create_head_pose(), duration=1.0)
+                                last_target_pos = None
+                                if self.debug:
+                                    print("   👁️  No face - returning to center")
+                            except Exception:
+                                pass
                 
-                # Update at 5 FPS during idle (smooth but not too aggressive)
-                time.sleep(0.2)
+                # Update at 3 FPS during idle (lower frequency for stability)
+                time.sleep(0.33)
         
         tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
         tracker_thread.start()
