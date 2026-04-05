@@ -7,9 +7,9 @@ Extends emo_v9.py with computer vision features:
 - Future: Gesture recognition, emotion analysis, visual QA
 
 Usage:
-    python emo_v9_vision.py --vision              # Enable vision
-    python emo_v9_vision.py --vision --chat       # Interactive chat with vision
-    python emo_v9_vision.py --no-vision           # Disable vision (pure v9 mode)
+    python emo_v9_vision.py                       # Pure v9 mode (no vision)
+    python emo_v9_vision.py --vision face --chat  # Enable face tracking
+    python emo_v9_vision.py --vision all --chat   # Enable all vision features
 
 Architecture:
     This file extends ChatAppWithPiper from emo_v9.py, adding VisionController
@@ -640,12 +640,7 @@ def main():
         const='all',
         default=None,
         choices=['all', 'face', 'hand', 'object'],
-        help='Enable vision features: all (default), face (face tracking only), hand (gesture, future), object (future)'
-    )
-    parser.add_argument(
-        '--no-vision',
-        action='store_true',
-        help='Disable vision features'
+        help='Enable vision features: face (face tracking), hand (gesture, future), object (future), all (all features). Default: disabled'
     )
     parser.add_argument(
         '--vision-fps',
@@ -679,13 +674,8 @@ def main():
     args = parser.parse_args()
     
     # Determine vision mode
-    # --no-vision takes highest priority
-    if args.no_vision:
-        vision_mode = None  # Disabled
-    elif args.vision is None:
-        vision_mode = None  # Not specified, default off for now
-    else:
-        vision_mode = args.vision  # 'all', 'face', 'hand', or 'object'
+    # Default is None (disabled), --vision enables it
+    vision_mode = args.vision  # None, 'all', 'face', 'hand', or 'object'
     
     # Feature flags based on mode
     enable_face = vision_mode in ['all', 'face']
