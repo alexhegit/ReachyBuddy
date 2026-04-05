@@ -7,13 +7,20 @@ This module provides computer vision capabilities including:
 - Visual question answering
 
 Example:
-    >>> from vision import VisionController
-    >>> controller = VisionController(reachy, enabled=True)
+    >>> from vision import VisionController, VisionConfig
+    >>> config = VisionConfig(enabled=True, face_tracking=True)
+    >>> controller = VisionController(reachy, config)
     >>> controller.start()
-    >>> face_pos = controller.face_tracker.get_position()
+    >>> face_pos = controller.get_face_position()
 """
 
-from .controller import VisionController
-from .face_tracker import FaceTracker
+from .controller import VisionController, VisionConfig, VisionState
+from .face_tracker import FaceTracker, FaceTrackerThread
 
-__all__ = ['VisionController', 'FaceTracker']
+__all__ = [
+    'VisionController',
+    'VisionConfig',
+    'VisionState',
+    'FaceTracker',
+    'FaceTrackerThread',
+]
