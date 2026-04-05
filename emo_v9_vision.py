@@ -20,6 +20,7 @@ import sys
 import time
 import argparse
 import threading
+import asyncio
 from typing import Optional
 
 # Import base v9 functionality
@@ -333,23 +334,188 @@ class ChatAppWithVision(ChatAppWithPiper):
         await asyncio.sleep(duration)
     
     async def _chat_with_asr(self, reachy):
-        """ASR chat mode with vision."""
-        # Use parent implementation but with vision-aware speak method
-        # For now, delegate to parent and override speak method
-        self._override_speak_method()
-        await super().start_chat_async()
+        """ASR chat mode with vision - directly implement to avoid double init."""
+        # Import here to avoid circular dependency
+        import aiohttp
+        import select
+        import sys
+        
+        print("\n🎤 VAD ASR + Vision mode: press Ctrl-C to stop")
+        
+        if FasterWhisperASREngine is None:
+            print("❌ ASR not available")
+            return
+            
+        # Initialize ASR
+        print(f"Initializing ASR ({self.asr_model}, VAD: {self.vad_silence}s silence)...")
+        try:
+            self.asr_engine = await asyncio.to_thread(
+                FasterWhisperASREngine,
+                model_name=self.asr_model,
+                device='cpu'
+            )
+        except Exception as e:
+            print(f"❌ Failed to initialize ASR: {e}")
+            return
+        
+        async with aiohttp.ClientSession() as session:
+            await self.check_ollama_model(session)
+            
+            while True:
+                try:
+                    print("\n🎙️ Speak now... (Ctrl+C to exit)")
+                    
+                    # Record with VAD
+                    asr_start = time.time()
+                    
+                    if self.use_vad:
+                        transcription = await asyncio.to_thread(
+                            self.asr_engine.transcribe_from_mic_vad,
+                            max_duration=4.0,
+                            silence_threshold=self.vad_silence,
+                            aggressiveness=self.vad_aggressive,
+                            trailing_buffer_ms=300,
+                            show_volume=True
+                        )
+                    else:
+                        transcription = await asyncio.to_thread(
+                            self.asr_engine.transcribe_from_mic,
+                            duration=4.0,
+                            show_volume=True
+                        )
+                    
+                    asr_time = time.time() - asr_start
+                    
+                    if not transcription:
+                        print("⚠️ No speech detected, try again")
+                        continue
+                    
+                    # Process user input
+                    self.history.add_user_message(transcription)
+                    print(f"📝 You: {transcription}")
+                    
+                    # Get LLM response
+                    print("\n🤖 Reachy Mini: ", end="", flush=True)
+                    llm_start = time.time()
+                    
+                    response = await self._get_ollama_response_async(transcription, session)
+                    llm_time = time.time() - llm_start
+                    
+                    if response and self.controller:
+                        # Analyze and speak with vision
+                        emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
+                        self._stop_speaking_event.clear()
+                        
+                        tts_start = time.time()
+                        speech_task = asyncio.create_task(asyncio.to_thread(
+                            self._speak_with_face_tracking,
+                            response, emotion, intensity, emotion_level,
+                            self._stop_speaking_event
+                        ))
+                        
+                        # Wait for interrupt
+                        try:
+                            while not speech_task.done():
+                                if select.select([sys.stdin], [], [], 0)[0]:
+                                    try:
+                                        char = sys.stdin.read(1)
+                                        if char == '':
+                                            print("\n⏹️ Interrupting...")
+                                            self._stop_speaking_event.set()
+                                            break
+                                    except:
+                                        pass
+                                await asyncio.sleep(0.05)
+                            
+                            await speech_task
+                        except asyncio.CancelledError:
+                            pass
+                        
+                        tts_time = time.time() - tts_start
+                        self.history.add_assistant_message(response)
+                        
+                        if self.debug:
+                            print(f"\n  ⏱️ ASR: {asr_time:.2f}s, LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s")
+                        
+                except KeyboardInterrupt:
+                    print("\n\n👋 Goodbye!")
+                    return
+                except Exception as e:
+                    print(f"\n⚠️ Error: {e}")
+                    await asyncio.sleep(1.0)
     
     async def _chat_text(self, reachy):
-        """Text chat mode with vision."""
-        self._override_speak_method()
-        await super().start_chat_async()
-    
-    def _override_speak_method(self):
-        """Temporarily override speak method to include vision."""
-        # Store original
-        self._original_speak = self._speak_and_animate
-        # Replace with vision version
-        self._speak_and_animate = self._speak_and_animate_with_vision
+        """Text chat mode with vision - directly implement to avoid double init."""
+        import aiohttp
+        import select
+        import sys
+        
+        print("\n💬 Start chatting (type 'quit' or Ctrl+C to exit)")
+        
+        async with aiohttp.ClientSession() as session:
+            await self.check_ollama_model(session)
+            
+            while True:
+                try:
+                    user_input = input("\n🧑 You: ").strip()
+                    
+                    if user_input.lower() in ['quit', 'exit', 'q']:
+                        break
+                    if user_input.lower() == 'clear':
+                        self.history.clear()
+                        continue
+                    if not user_input:
+                        continue
+                    
+                    self.history.add_user_message(user_input)
+                    print("\n🤖 Reachy Mini: ", end="", flush=True)
+                    
+                    # Get LLM response
+                    llm_start = time.time()
+                    response = await self._get_ollama_response_async(user_input, session)
+                    llm_time = time.time() - llm_start
+                    
+                    if response and self.controller:
+                        emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
+                        self._stop_speaking_event.clear()
+                        
+                        tts_start = time.time()
+                        speech_task = asyncio.create_task(asyncio.to_thread(
+                            self._speak_with_face_tracking,
+                            response, emotion, intensity, emotion_level,
+                            self._stop_speaking_event
+                        ))
+                        
+                        # Wait for interrupt
+                        try:
+                            while not speech_task.done():
+                                if select.select([sys.stdin], [], [], 0)[0]:
+                                    try:
+                                        char = sys.stdin.read(1)
+                                        if char == '':
+                                            print("\n⏹️ Interrupting...")
+                                            self._stop_speaking_event.set()
+                                            break
+                                    except:
+                                        pass
+                                await asyncio.sleep(0.05)
+                            
+                            await speech_task
+                        except asyncio.CancelledError:
+                            pass
+                        
+                        tts_time = time.time() - tts_start
+                        self.history.add_assistant_message(response)
+                        
+                        if self.debug:
+                            print(f"\n  ⏱️ LLM: {llm_time:.2f}s, TTS: {tts_time:.2f}s")
+                            
+                except KeyboardInterrupt:
+                    print("\n\n👋 Goodbye!")
+                    return
+                except Exception as e:
+                    print(f"\n⚠️ Error: {e}")
+                    await asyncio.sleep(1.0)
 
 
 def main():

@@ -8,6 +8,8 @@ import threading
 from typing import Optional, Tuple
 from collections import deque
 
+import cv2
+
 
 class FaceTracker:
     """Face detection and position tracking.
@@ -78,24 +80,26 @@ class FaceTracker:
         import mediapipe as mp
         
         # Convert BGR to RGB
-        rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=frame)
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
-        # Detect faces
-        results = self._face_detection.detect(rgb_frame)
+        # Process frame (MediaPipe uses process(), not detect())
+        results = self._face_detection.process(rgb_frame)
         
         if not results.detections:
             return None
         
         # Get the first (most prominent) face
         detection = results.detections[0]
-        bbox = detection.bounding_box
+        bbox = detection.location_data.relative_bounding_box
         
-        return (
-            int(bbox.origin_x),
-            int(bbox.origin_y),
-            int(bbox.width),
-            int(bbox.height)
-        )
+        # Convert relative coordinates to absolute pixels
+        h, w = frame.shape[:2]
+        x = int(bbox.xmin * w)
+        y = int(bbox.ymin * h)
+        width = int(bbox.width * w)
+        height = int(bbox.height * h)
+        
+        return (x, y, width, height)
     
     def get_face_center(self, frame) -> Optional[Tuple[int, int]]:
         """Get smoothed face center coordinates.
