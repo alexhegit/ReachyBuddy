@@ -3,13 +3,13 @@
 
 Extends emo_v9.py with computer vision features:
 - Face tracking: Robot head follows user's face
+- Security monitor: Motion detection and person presence logging
 - Motion wake-up: Auto-wake when person detected
-- Future: Gesture recognition, emotion analysis, visual QA
 
 Usage:
-    python emo_v9_vision.py                       # Pure v9 mode (no vision)
-    python emo_v9_vision.py --vision face --chat  # Enable face tracking
-    python emo_v9_vision.py --vision all --chat   # Enable all vision features
+    python emo_v9_vision.py                           # Pure v9 mode (no vision)
+    python emo_v9_vision.py --vision face --chat      # Enable face tracking
+    python emo_v9_vision.py --vision monitor          # Security monitoring mode
 
 Architecture:
     This file extends ChatAppWithPiper from emo_v9.py, adding VisionController
@@ -34,7 +34,7 @@ from emo_v9 import (
 
 # Import vision module
 try:
-    from vision import VisionController, VisionConfig
+    from vision import VisionController, VisionConfig, MonitorTracker, FaceTracker
     VISION_AVAILABLE = True
 except ImportError as e:
     print(f"⚠️ Vision module not available: {e}")
@@ -61,6 +61,7 @@ class ChatAppWithVision(ChatAppWithPiper):
     def __init__(
         self,
         vision_enabled: bool = True,
+        vision_mode: Optional[str] = 'face',
         vision_fps: float = 15.0,
         vision_auto_wake: bool = True,
         *args,
@@ -69,10 +70,13 @@ class ChatAppWithVision(ChatAppWithPiper):
         super().__init__(*args, **kwargs)
         
         self.vision_enabled = vision_enabled and VISION_AVAILABLE
+        self.vision_mode = vision_mode
         
         self.vision: Optional[VisionController] = None
+        self.monitor_tracker: Optional[MonitorTracker] = None
+        
         self._vision_config = VisionConfig(
-            enabled=self.vision_enabled,
+            enabled=self.vision_enabled and vision_mode == 'face',
             face_tracking=True,
             target_fps=vision_fps,
             auto_wake=vision_auto_wake,
@@ -83,6 +87,9 @@ class ChatAppWithVision(ChatAppWithPiper):
         self._person_present = False
         self._face_tracking_active = False
         self._is_speaking = False  # Track speaking state for idle face tracking
+        self._monitor_active = False  # Track if monitor mode is active
+        self._patrol_active = False  # Track if patrol is active
+        self._patrol_paused = False  # Pause patrol on events
     
     async def start_chat_async(self):
         """Start chat with vision capabilities."""
@@ -91,10 +98,16 @@ class ChatAppWithVision(ChatAppWithPiper):
         print("=" * 60)
         
         if self.vision_enabled:
-            print(f"👁️  Vision features: ENABLED")
-            print(f"   - Face tracking: Yes")
-            print(f"   - Target FPS: {self._vision_config.target_fps}")
-            print(f"   - Auto wake: {self._vision_config.auto_wake}")
+            if self.vision_mode == 'monitor':
+                print(f"👁️  Vision mode: SECURITY MONITOR 🔒")
+                print(f"   - Motion detection: Yes")
+                print(f"   - Person presence: Yes")
+                print(f"   - Event logging: Yes")
+            else:
+                print(f"👁️  Vision features: ENABLED")
+                print(f"   - Face tracking: Yes")
+                print(f"   - Target FPS: {self._vision_config.target_fps}")
+                print(f"   - Auto wake: {self._vision_config.auto_wake}")
         else:
             print("👁️  Vision features: DISABLED")
             if not VISION_AVAILABLE:
@@ -106,20 +119,39 @@ class ChatAppWithVision(ChatAppWithPiper):
         
         try:
             # Use "default" media backend to enable camera for vision
-            # Options: "default", "opencv", "gstreamer", "no_media"
             media_backend = "default" if self.vision_enabled else "no_media"
+            
+            # For monitor mode, we need camera but not face tracking config
+            if self.vision_mode == 'monitor':
+                # Create minimal vision config for camera access
+                self._vision_config = VisionConfig(enabled=True, face_tracking=True)
+            
             with ReachyMini(media_backend=media_backend) as reachy:
                 print("✅ Connected to Reachy Mini")
                 
                 # Disable automatic body yaw for recorded moves
                 reachy.set_automatic_body_yaw(False)
                 
-                # Initialize vision controller
+                # Initialize vision controller based on mode
                 if self.vision_enabled:
-                    self.vision = VisionController(reachy, self._vision_config)
-                    self._setup_vision_callbacks()
-                    self.vision.start()
-                    self._start_idle_face_tracking(reachy)
+                    if self.vision_mode == 'monitor':
+                        # Security monitor mode - no chat, just monitoring
+                        self._start_security_monitoring(reachy)
+                        
+                        # Keep running until interrupted
+                        print("\n   🔒 Monitor mode active. Press Ctrl+C to stop.\n")
+                        try:
+                            while self._monitor_active:
+                                await self._sleep(1.0)
+                        except KeyboardInterrupt:
+                            print("\n   🛑 Monitor stopped by user")
+                        return
+                    else:
+                        # Face tracking mode (default)
+                        self.vision = VisionController(reachy, self._vision_config)
+                        self._setup_vision_callbacks()
+                        self.vision.start()
+                        self._start_idle_face_tracking(reachy)
                 
                 # Initialize emotion controller (from v9)
                 self.controller = EmotionControllerV71(
@@ -135,7 +167,7 @@ class ChatAppWithVision(ChatAppWithPiper):
                 reachy.goto_target(head=create_head_pose(), duration=1.0)
                 await self._sleep(1.0)
                 
-                # Enter main chat loop
+                # Enter main chat loop (only for non-monitor modes)
                 if self.use_asr:
                     await self._chat_with_asr(reachy)
                 else:
@@ -147,6 +179,10 @@ class ChatAppWithVision(ChatAppWithPiper):
         finally:
             if self.vision:
                 self.vision.stop()
+            if self.monitor_tracker:
+                self._monitor_active = False
+                self._patrol_active = False
+                self.monitor_tracker.stop()
     
     def _setup_vision_callbacks(self):
         """Setup vision event callbacks."""
@@ -270,6 +306,180 @@ class ChatAppWithVision(ChatAppWithPiper):
         tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
         tracker_thread.start()
         print("   ✅ Ultra-smooth face tracking started")
+    
+    def _start_security_monitoring(self, reachy):
+        """Start security monitoring mode.
+        
+        Monitors for motion, person presence, and anomalies.
+        Logs events with timestamps.
+        """
+        import threading
+        
+        self.monitor_tracker = MonitorTracker(
+            motion_threshold=25,
+            min_motion_area=500,
+            cooldown_seconds=5.0,
+            buffer_seconds=3.0
+        )
+        self.monitor_tracker.start()
+        self._monitor_active = True
+        
+        # Setup event callbacks
+        def on_motion_event(event):
+            print(f"   🚨 MOTION DETECTED at {event.timestamp.strftime('%H:%M:%S')}")
+            print(f"      {event.description}")
+            # Optional: trigger robot to look at motion direction
+            try:
+                reachy.goto_target(head=create_head_pose(), duration=0.5)
+            except Exception:
+                pass
+        
+        def on_person_enter_event(event):
+            print(f"   👤 PERSON ENTERED at {event.timestamp.strftime('%H:%M:%S')}")
+            print(f"      {event.description}")
+            # Person detected - robot looks around alertly
+            try:
+                reachy.goto_target(head=create_head_pose(yaw=15, degrees=True), duration=0.3)
+                time.sleep(0.3)
+                reachy.goto_target(head=create_head_pose(yaw=-15, degrees=True), duration=0.3)
+                time.sleep(0.3)
+                reachy.goto_target(head=create_head_pose(), duration=0.3)
+            except Exception:
+                pass
+        
+        def on_person_leave_event(event):
+            print(f"   🚪 PERSON LEFT at {event.timestamp.strftime('%H:%M:%S')}")
+            print(f"      {event.description}")
+        
+        def on_anomaly_event(event):
+            print(f"   ⚠️  ANOMALY at {event.timestamp.strftime('%H:%M:%S')}")
+            print(f"      {event.description}")
+        
+        self.monitor_tracker.on_motion = on_motion_event
+        self.monitor_tracker.on_person_enter = on_person_enter_event
+        self.monitor_tracker.on_person_leave = on_person_leave_event
+        self.monitor_tracker.on_anomaly = on_anomaly_event
+        
+        # Create face tracker for person detection in monitor mode
+        face_tracker = FaceTracker(smooth_factor=0.3)
+        
+        # Patrol state
+        self._patrol_active = True
+        self._patrol_paused = False  # Pause patrol when event detected
+        
+        def patrol_loop():
+            """Head patrol loop: specific waypoints with 1s hold at each position.
+            
+            Trajectory: Center → Left25° (1s) → Left50° (1s) → Left25° (1s) → Center (1s)
+                      → Right25° (1s) → Right50° (1s) → Right25° (1s) → Center (1s) → repeat
+            """
+            print("   🔄 Head patrol started: Center ↔ Left50° ↔ Right50°")
+            
+            # Define patrol waypoints: (yaw_angle, hold_time_seconds)
+            waypoints = [
+                (25, 1.0),    # Left 25°, hold 1s
+                (50, 1.0),    # Left 50°, hold 1s
+                (25, 1.0),    # Left 25°, hold 1s
+                (0, 1.0),     # Center, hold 1s
+                (-25, 1.0),   # Right 25°, hold 1s
+                (-50, 1.0),   # Right 50°, hold 1s
+                (-25, 1.0),   # Right 25°, hold 1s
+                (0, 1.0),     # Center, hold 1s
+            ]
+            
+            # Start from center
+            try:
+                reachy.goto_target(
+                    head=create_head_pose(yaw=0, degrees=True),
+                    duration=0.5
+                )
+                time.sleep(0.5)
+            except Exception:
+                pass
+            
+            waypoint_index = 0
+            
+            while self._patrol_active:
+                if self._patrol_paused:
+                    time.sleep(0.1)
+                    continue
+                
+                try:
+                    # Get current waypoint
+                    yaw_angle, hold_time = waypoints[waypoint_index]
+                    
+                    # Move to position (0.4s transition)
+                    reachy.goto_target(
+                        head=create_head_pose(yaw=yaw_angle, degrees=True),
+                        duration=0.4
+                    )
+                    
+                    # Wait for movement + hold time
+                    time.sleep(0.4 + hold_time)
+                    
+                    # Next waypoint
+                    waypoint_index = (waypoint_index + 1) % len(waypoints)
+                    
+                except Exception as e:
+                    if self.debug:
+                        print(f"      ⚠️ Patrol error: {e}")
+                    time.sleep(0.5)
+            
+            print("   🛑 Head patrol stopped")
+        
+        def monitor_loop():
+            """Continuous monitoring loop."""
+            print("   🔒 Monitor loop started")
+            frame_count = 0
+            
+            while self._monitor_active and self.monitor_tracker:
+                # Get frame from camera via reachy media
+                try:
+                    frame = None
+                    if hasattr(reachy, 'media') and reachy.media:
+                        frame = reachy.media.get_frame()
+                    
+                    if frame is not None:
+                        frame_count += 1
+                        
+                        # Check for person using face tracker
+                        person_detected = False
+                        face_pos = face_tracker.get_face_center(frame)
+                        person_detected = face_pos is not None
+                        
+                        # Process frame for monitoring
+                        event = self.monitor_tracker.process_frame(frame, person_detected)
+                        
+                        # Pause patrol on significant event, resume after cooldown
+                        if event and event.event_type in ('motion', 'person_enter'):
+                            self._patrol_paused = True
+                            # Resume patrol after 5 seconds
+                            threading.Timer(5.0, lambda: setattr(self, '_patrol_paused', False)).start()
+                        
+                        # Print stats every 300 frames (~30 seconds at 10 FPS)
+                        if frame_count % 300 == 0:
+                            stats = self.monitor_tracker.get_event_stats()
+                            print(f"\n   📊 Monitor Stats (last 30s):")
+                            print(f"      Total events: {stats['total_events']}")
+                            print(f"      Motion: {stats['motion_count']}")
+                            print(f"      Person enter: {stats['person_enter_count']}")
+                            print(f"      Person leave: {stats['person_leave_count']}")
+                            print(f"      Anomalies: {stats['anomaly_count']}")
+                
+                except Exception as e:
+                    if self.debug:
+                        print(f"      ⚠️ Monitor error: {e}")
+                
+                time.sleep(0.1)  # 10 FPS monitoring
+        
+        # Start both threads
+        patrol_thread = threading.Thread(target=patrol_loop, daemon=True)
+        patrol_thread.start()
+        
+        monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
+        monitor_thread.start()
+        
+        print("   ✅ Security monitoring + patrol active")
     
     def _speak_and_animate_with_vision(
         self,
@@ -638,10 +848,10 @@ def main():
     parser.add_argument(
         '--vision', 
         nargs='?',
-        const='all',
+        const='face',
         default=None,
-        choices=['all', 'face'],
-        help='Enable vision features: face (face tracking), all (face tracking). Default: disabled'
+        choices=['face', 'monitor'],
+        help='Enable vision features: face (face tracking), monitor (security monitoring). Default: disabled'
     )
     parser.add_argument(
         '--vision-fps',
@@ -677,14 +887,22 @@ def main():
     # Determine vision mode
     # Default is None (disabled), --vision enables it
     vision_enabled = args.vision is not None
+    vision_mode = args.vision  # 'face' or 'monitor'
+    enable_face = vision_mode == "face"
+    enable_monitor = vision_mode == "monitor"
     
     # Print vision mode info
     if vision_enabled:
-        print(f"👁️  Vision features: ENABLED (face tracking)")
+        if enable_monitor:
+            print(f"🔒 Security monitor mode: ENABLED")
+            print(f"   Logs will be saved to: security_logs/")
+        else:
+            print(f"👁️  Vision features: ENABLED (face tracking)")
     
     # Create app
     app = ChatAppWithVision(
         vision_enabled=vision_enabled,
+        vision_mode=vision_mode,
         vision_fps=args.vision_fps,
         vision_auto_wake=not args.no_auto_wake,
         model=args.model,

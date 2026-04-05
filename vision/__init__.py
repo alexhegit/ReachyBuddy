@@ -12,6 +12,7 @@ Example:
 
 from .controller import VisionController, VisionConfig, VisionState
 from .face_tracker import FaceTracker, FaceTrackerThread
+from .monitor_tracker import MonitorTracker, MonitorEvent
 
 __all__ = [
     'VisionController',
@@ -19,4 +20,6 @@ __all__ = [
     'VisionState',
     'FaceTracker',
     'FaceTrackerThread',
+    'MonitorTracker',
+    'MonitorEvent',
 ]
