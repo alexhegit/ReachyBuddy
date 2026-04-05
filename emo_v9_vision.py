@@ -72,6 +72,7 @@ class ChatAppWithVision(ChatAppWithPiper):
         
         self.vision_enabled = vision_enabled and VISION_AVAILABLE
         self.vision_mode = vision_mode
+        self.enable_face = vision_mode == 'face'  # Face tracking enabled in 'face' mode
         
         self.vision: Optional[VisionController] = None
         self.monitor_tracker: Optional[MonitorTracker] = None
