@@ -169,72 +169,113 @@ class ChatAppWithVision(ChatAppWithPiper):
         self.vision.on_person_leave = on_person_leave
     
     def _start_idle_face_tracking(self, reachy):
-        """Start background thread for low-latency face tracking during idle.
+        """Start background thread for smooth and accurate face tracking during idle.
         
-        Optimized for minimal delay between face movement and head response.
+        Optimized for smooth, natural head movement that accurately tracks face position.
         """
         import threading
         
         def idle_tracker():
-            """Low-latency face tracking when idle."""
-            print("   👁️  Idle face tracking started (low latency)")
+            """Smooth and accurate face tracking when idle."""
+            print("   👁️  Idle face tracking started (smooth & accurate)")
+            
+            # Double EMA for maximum smoothness
+            ema_x: Optional[float] = None
+            ema_y: Optional[float] = None
+            ema_alpha = 0.15  # Low = very smooth
             
             last_sent_pos: Optional[Tuple[int, int]] = None
-            min_update_interval = 0.05  # 20 FPS for minimal latency
-            position_threshold = 15  # Small threshold for precision
+            min_update_interval = 0.08  # 12.5 FPS (smooth but responsive)
+            position_threshold = 25  # Balanced threshold
+            
+            # Velocity prediction for accuracy
+            velocity_x = 0.0
+            velocity_y = 0.0
             
             last_update_time = 0.0
+            last_pos_time = 0.0
             
             while self.vision and self.vision._running:
                 current_time = time.time()
                 
-                # High frequency updates
+                # Rate limiting
                 if current_time - last_update_time < min_update_interval:
-                    time.sleep(0.005)
+                    time.sleep(0.01)
                     continue
                 
                 # Only track when not speaking (idle mode)
                 if not self._is_speaking:
                     if self.vision.is_person_present():
                         if pos := self.vision.get_face_position():
-                            # Use position directly with small threshold
+                            raw_x, raw_y = pos
+                            
+                            # Calculate velocity for prediction
+                            if ema_x is not None:
+                                dt = current_time - last_pos_time
+                                if dt > 0.001:
+                                    new_vx = (raw_x - ema_x) / dt
+                                    new_vy = (raw_y - ema_y) / dt
+                                    # Smooth velocity
+                                    velocity_x = 0.3 * new_vx + 0.7 * velocity_x
+                                    velocity_y = 0.3 * new_vy + 0.7 * velocity_y
+                            
+                            # Apply EMA smoothing
+                            if ema_x is None:
+                                ema_x = float(raw_x)
+                                ema_y = float(raw_y)
+                            else:
+                                ema_x = ema_alpha * raw_x + (1 - ema_alpha) * ema_x
+                                ema_y = ema_alpha * raw_y + (1 - ema_alpha) * ema_y
+                            
+                            # Predict future position (0.1s ahead) for accuracy
+                            predicted_x = ema_x + velocity_x * 0.1
+                            predicted_y = ema_y + velocity_y * 0.1
+                            
+                            target_pos = (int(predicted_x), int(predicted_y))
+                            last_pos_time = current_time
+                            
+                            # Check if we should update
                             should_update = True
                             if last_sent_pos:
-                                dx = abs(pos[0] - last_sent_pos[0])
-                                dy = abs(pos[1] - last_sent_pos[1])
+                                dx = abs(target_pos[0] - last_sent_pos[0])
+                                dy = abs(target_pos[1] - last_sent_pos[1])
                                 if dx < position_threshold and dy < position_threshold:
                                     should_update = False
                             
                             if should_update:
                                 try:
-                                    # Fast, snappy movement (low duration)
+                                    # Smooth, natural movement
                                     reachy.look_at_image(
-                                        pos[0], pos[1], 
-                                        duration=0.15  # Very quick
+                                        target_pos[0], target_pos[1], 
+                                        duration=0.35  # Smooth but not sluggish
                                     )
-                                    last_sent_pos = pos
+                                    last_sent_pos = target_pos
                                     last_update_time = current_time
                                     if self.debug:
-                                        print(f"   👁️  Track ({pos[0]},{pos[1]})")
+                                        print(f"   👁️  Track ({raw_x},{raw_y})→({target_pos[0]},{target_pos[1]})")
                                 except Exception:
                                     pass
                     else:
-                        # No person - reset and look at center
+                        # No person - reset
                         if last_sent_pos is not None:
                             try:
-                                reachy.goto_target(head=create_head_pose(), duration=0.5)
+                                reachy.goto_target(head=create_head_pose(), duration=0.6)
                                 last_sent_pos = None
+                                ema_x = None
+                                ema_y = None
+                                velocity_x = 0.0
+                                velocity_y = 0.0
                                 last_update_time = current_time
                                 if self.debug:
                                     print("   👁️  No face - center")
                             except Exception:
                                 pass
                 
-                time.sleep(0.005)
+                time.sleep(0.01)
         
         tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
         tracker_thread.start()
-        print("   ✅ Low-latency face tracking started")
+        print("   ✅ Smooth & accurate face tracking started")
     
     def _speak_and_animate_with_vision(
         self,

@@ -113,17 +113,17 @@ class VisionController:
         
         print("👁️  Starting vision controller...")
         
-        # Initialize face tracker with high responsiveness
+        # Initialize face tracker for smooth detection
         if self.config.face_tracking:
             self.face_tracker = FaceTracker(
                 model_selection=0,  # Short range for desktop robot
                 min_detection_confidence=0.5,
-                smooth_factor=0.7   # High responsiveness (0.7)
+                smooth_factor=0.4   # Balanced smoothness (0.4)
             )
         
-        # Increase target FPS for lower detection latency (20 instead of 15)
-        if self.config.target_fps < 20:
-            self.config.target_fps = 20.0
+        # Target FPS for smooth detection (15 FPS is sufficient for smooth tracking)
+        if self.config.target_fps > 15:
+            self.config.target_fps = 15.0
         
         self._running = True
         self.state = VisionState.TRACKING
