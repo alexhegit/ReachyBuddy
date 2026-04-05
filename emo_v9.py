@@ -12,7 +12,7 @@ Usage:
 
 Development workflow:
   1. Make small change
-  2. Test thoroughly  
+  2. Test thoroughly
   3. Commit
   4. Next feature
 """
@@ -53,16 +53,17 @@ except Exception:
     except Exception:
         FasterWhisperASREngine = None
 
+
 class PiperTTSEngine:
     """Piper-TTS engine wrapper for offline speech synthesis."""
-    
+
     def __init__(self, model_path: str, config_path: str = None, speaker_id: int = 0, debug: bool = False):
         self.debug = debug
         self.model_path = model_path
         self.config_path = config_path
         self.speaker_id = speaker_id
         self.voice = None
-        
+
         try:
             from piper import PiperVoice, PiperConfig
             # Import SynthesisConfig if available, else use default dict
@@ -71,7 +72,7 @@ class PiperTTSEngine:
                 self.SynthesisConfig = SynthesisConfig
             except ImportError:
                 self.SynthesisConfig = None
-            
+
             import onnxruntime
             self.PiperVoice = PiperVoice
             self.PiperConfig = PiperConfig
@@ -82,7 +83,7 @@ class PiperTTSEngine:
 
         if not os.path.exists(model_path):
             print(f"❌ Piper model not found at: {model_path}")
-            
+
             # Try to find any onnx model in models/ or current directory
             print("🔍 Searching for available models...")
             found_models = []
@@ -91,7 +92,7 @@ class PiperTTSEngine:
                     for f in os.listdir(search_dir):
                         if f.endswith('.onnx'):
                             found_models.append(os.path.join(search_dir, f))
-            
+
             if found_models:
                 print(f"💡 Found available models:")
                 for m in found_models:
@@ -99,7 +100,7 @@ class PiperTTSEngine:
                 print(f"\nExample: python emo_v8.py --piper-model {found_models[0]}")
             else:
                 print("⚠️ No .onnx models found. Please download one from https://github.com/rhasspy/piper/releases/tag/v0.0.2")
-                
+
             self.voice = None
             return
 
@@ -109,33 +110,33 @@ class PiperTTSEngine:
                 potential_config = model_path + ".json"
                 if os.path.exists(potential_config):
                     self.config_path = potential_config
-            
+
             print(f"🎙️ Loading Piper model: {model_path}")
-            
+
             # Manually load config to fix legacy phoneme_type issue
             with open(self.config_path or (model_path + ".json"), 'r', encoding='utf-8') as f:
                 config_dict = json.load(f)
-            
+
             # FIX: Replace legacy "PhonemeType.ESPEAK" string with "espeak"
             if config_dict.get('phoneme_type') == 'PhonemeType.ESPEAK':
                 print("🔧 Fixing legacy phoneme_type in config...")
                 config_dict['phoneme_type'] = 'espeak'
-                
+
             # Create config object
             config = self.PiperConfig.from_dict(config_dict)
-            
+
             # Create ONNX session
             session = self.onnxruntime.InferenceSession(
                 str(model_path),
                 sess_options=self.onnxruntime.SessionOptions(),
                 providers=["CPUExecutionProvider"]
             )
-            
+
             # Initialize voice manually
             self.voice = self.PiperVoice(session=session, config=config)
-                
+
             print(f"✅ Piper TTS initialized")
-            
+
         except Exception as e:
             print(f"❌ Failed to load Piper model: {e}")
             self.voice = None
@@ -144,7 +145,7 @@ class PiperTTSEngine:
         """Speak text using Piper (blocking)."""
         if not text.strip():
             return
-            
+
         if not self.voice:
             print(f"⚠️ Piper voice not loaded. Skipping speech: '{text[:20]}...'")
             return
@@ -160,7 +161,7 @@ class PiperTTSEngine:
                 syn_config = None
                 if self.SynthesisConfig and self.speaker_id is not None:
                     syn_config = self.SynthesisConfig(speaker_id=self.speaker_id)
-                
+
                 self.voice.synthesize_wav(text, wav_file, syn_config=syn_config)
 
             # Read and play
@@ -168,13 +169,13 @@ class PiperTTSEngine:
             if data.size > 0:
                 sd.play(data, samplerate=sr)
                 sd.wait()
-            
+
             # Cleanup
             try:
                 os.remove(tmp_path)
             except:
                 pass
-                
+
         except Exception as e:
             print(f"⚠️ Piper TTS error: {e}")
 
@@ -182,54 +183,54 @@ class PiperTTSEngine:
         """Async version of speak_with_emotion (runs in thread)."""
         # Piper synthesis is CPU bound, so run in a separate thread
         await asyncio.to_thread(self.speak_with_emotion, text, emotion)
-    
-    def speak_with_interrupt(self, text: str, emotion: str = 'neutral', 
+
+    def speak_with_interrupt(self, text: str, emotion: str = 'neutral',
                              stop_event: threading.Event = None) -> bool:
         """
         Speak text with support for interrupt via stop_event.
-        
+
         Args:
             text: Text to speak
             emotion: Emotion for TTS
             stop_event: Threading Event to signal interruption
-        
+
         Returns:
             True if completed without interrupt
             False if interrupted
         """
         print(f"🔊 Speaking: '{text[:50]}...'")
-        
+
         if not text.strip():
             return True
-            
+
         if not self.voice:
             print(f"❌ Voice not loaded!")
             return True
-        
+
         tmp_path = None
         interrupted = False
         try:
             # Create a temporary WAV file
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                 tmp_path = tmp.name
-            
+
             # Synthesize to file
             with wave.open(tmp_path, "wb") as wav_file:
                 syn_config = None
                 if self.SynthesisConfig and self.speaker_id is not None:
                     syn_config = self.SynthesisConfig(speaker_id=self.speaker_id)
                 self.voice.synthesize_wav(text, wav_file, syn_config=syn_config)
-            
+
             # Read audio data
             data, sr = sf.read(tmp_path, dtype='float32')
-            
+
             if data.size == 0:
                 return True
-            
+
             # Play audio with interrupt support
             sd.play(data, samplerate=sr)
             print(f"   💡 Press Ctrl+D to interrupt")
-            
+
             # Wait for playback or interrupt
             while True:
                 # Check if interrupted
@@ -238,16 +239,16 @@ class PiperTTSEngine:
                     print("\n⏹️  Interrupted")
                     interrupted = True
                     break
-                
+
                 # Check if playback finished
                 stream = sd.get_stream()
                 if stream is None or not stream.active:
                     break
-                
+
                 time.sleep(0.05)
-            
+
             return not interrupted
-            
+
         except Exception as e:
             print(f"❌ TTS error: {e}")
             return True
@@ -259,7 +260,7 @@ class PiperTTSEngine:
                     os.remove(tmp_path)
             except:
                 pass
-    
+
     async def speak_with_interrupt_async(self, text: str, emotion: str = 'neutral') -> bool:
         """Async version of speak_with_interrupt."""
         return await asyncio.to_thread(self.speak_with_interrupt, text, emotion)
@@ -267,54 +268,54 @@ class PiperTTSEngine:
 
 class ConversationHistory:
     """Manages conversation history for context-aware responses."""
-    
+
     def __init__(self, max_rounds: int = 5):
         """
         Initialize conversation history.
-        
+
         Args:
             max_rounds: Maximum number of conversation rounds to keep (default: 5)
         """
         self.max_rounds = max_rounds
         self.history: deque = deque(maxlen=max_rounds * 2)  # Each round has user + assistant
         self.enabled = True
-    
+
     def add_user_message(self, message: str):
         """Add a user message to history."""
         if self.enabled and message.strip():
             self.history.append({"role": "user", "content": message.strip()})
-    
+
     def add_assistant_message(self, message: str):
         """Add an assistant message to history."""
         if self.enabled and message.strip():
             self.history.append({"role": "assistant", "content": message.strip()})
-    
+
     def get_messages(self, include_system: bool = True) -> List[Dict[str, str]]:
         """
         Get all messages formatted for Ollama API.
-        
+
         Args:
             include_system: Whether to include system prompt
-            
+
         Returns:
             List of message dicts with 'role' and 'content' keys
         """
         messages = []
-        
+
         if include_system:
             messages.append({
                 "role": "system",
                 "content": "You are a cute desktop robot assistant. Respond with enthusiasm and warmth. Remember the user's name and preferences from the conversation."
             })
-        
+
         messages.extend(list(self.history))
         return messages
-    
+
     def clear(self):
         """Clear all conversation history."""
         self.history.clear()
         print("🗑️  Conversation history cleared")
-    
+
     def get_summary(self) -> str:
         """Get a summary of current history."""
         rounds = len(self.history) // 2
@@ -323,8 +324,8 @@ class ConversationHistory:
 
 class EmotionControllerV71(EmotionControllerV6):
     """Emotion controller using Piper-TTS instead of Edge-TTS."""
-    
-    def __init__(self, reachy: ReachyMini, piper_model: str, piper_config: str = None, 
+
+    def __init__(self, reachy: ReachyMini, piper_model: str, piper_config: str = None,
                  speaker_id: int = 0, debug: bool = False, gentle_mode: bool = False):
         # Step 1 Fix: Skip parent __init__ to avoid creating EdgeTTSEngine
         # Instead, directly initialize only what we need
@@ -332,7 +333,7 @@ class EmotionControllerV71(EmotionControllerV6):
         self.debug = debug
         self.gentle_mode = gentle_mode
         self.is_speaking_action = False
-        
+
         # Use Piper TTS directly (no Edge-TTS)
         self.tts_engine = PiperTTSEngine(piper_model, piper_config, speaker_id, debug)
         self.lip_sync = LipSyncControllerV5(reachy, debug=self.debug)
@@ -351,7 +352,7 @@ class EmotionControllerV71(EmotionControllerV6):
             'excited_wiggle': self._simple_excited_wiggle,
             'thoughtful_tilt': self._simple_thoughtful_tilt,
         }
-    
+
     def _get_all_gentle_moves(self):
         """Collect all gentle moves from every category."""
         gentle_names = ['calming1', 'serenity1', 'thoughtful1', 'thoughtful2',
@@ -495,7 +496,7 @@ class EmotionControllerV71(EmotionControllerV6):
         }
         actions = sequences.get(cat, [self._combined_nod_blink])
         random.choice(actions)()
-    
+
     def _play_recorded_move(self, move, duration: float = 2.0):
         """Execute a recorded move."""
         if isinstance(move, tuple) and len(move) == 2:
@@ -515,9 +516,9 @@ class EmotionControllerV71(EmotionControllerV6):
                 mv = self.dances_lib.get(move_name)
             except Exception:
                 mv = self.emotions_lib.get(move_name)
-        
+
         self.reachy.play_move(mv, initial_goto_duration=duration)
-    
+
     def speak_with_interrupt(self, text: str, emotion: str = 'neutral',
                              intensity: str = 'medium', level: float = 0.5,
                              stop_event: threading.Event = None) -> bool:
@@ -645,13 +646,13 @@ class EmotionControllerV71(EmotionControllerV6):
 
 
 class ChatAppWithPiper:
-    def __init__(self, 
-                 model: str = "qwen3:0.6b", 
-                 ollama_url: str = "http://localhost:11434", 
+    def __init__(self,
+                 model: str = "qwen3:0.6b",
+                 ollama_url: str = "http://localhost:11434",
                  piper_model: str = "models/en-us-ryan-medium.onnx",
                  piper_config: str = None,
                  speaker_id: int = 0,
-                 debug: bool = False, 
+                 debug: bool = False,
                  use_asr: bool = False,
                  gentle: bool = False,
                  history_size: int = 5,
@@ -672,14 +673,14 @@ class ChatAppWithPiper:
         self.vad_silence = vad_silence  # VAD silence threshold (default 0.8s, increase if cutting off)
         self.vad_aggressive = vad_aggressive  # VAD aggressiveness 0-3 (1=gentle, 3=strict)
         self.use_vad = use_vad  # Whether to use VAD or fixed-duration recording
-        
+
         self.controller: Optional[EmotionControllerV71] = None
         self.asr_engine = None
-        
+
         # Step 2: Conversation history
         self.history = ConversationHistory(max_rounds=history_size)
         self.history.enabled = enable_history
-        
+
         # Interrupt handling
         self._stop_speaking_event = threading.Event()
 
@@ -700,7 +701,7 @@ class ChatAppWithPiper:
                     if f"{self.model}:latest" in models:
                         print(f"✅ Model '{self.model}:latest' found.")
                         return True
-                        
+
                     print(f"⚠️ Model '{self.model}' not found in Ollama list.")
                     print(f"   Available models: {', '.join(models)}")
                     print("   Attempting to use it anyway (Ollama might pull it or error)...")
@@ -719,8 +720,8 @@ class ChatAppWithPiper:
                     print(f"DEBUG: {self.history.get_summary()}")
 
             # Increase timeout significantly as loading a model can take time
-            timeout_seconds = 300 
-            
+            timeout_seconds = 300
+
             # Build messages with history
             if self.history.enabled:
                 # Get existing history (includes system prompt)
@@ -737,7 +738,7 @@ class ChatAppWithPiper:
             async with session.post(
                 f"{self.ollama_url}/api/chat",
                 json={
-                    "model": self.model, 
+                    "model": self.model,
                     "messages": messages,
                     "stream": True,
                     # Some thinking-capable models can emit only `message.thinking`.
@@ -765,10 +766,10 @@ class ChatAppWithPiper:
                             decoded = line.decode('utf-8')
                             chunk = json.loads(decoded)
                             chunk_count += 1
-                            
+
                             if self.debug and chunk_count <= 3:
                                 print(f"DEBUG Chunk {chunk_count}: {decoded.strip()}")
-                                
+
                             content = ""
                             # Handle /api/chat response format
                             if 'message' in chunk and 'content' in chunk['message']:
@@ -777,20 +778,20 @@ class ChatAppWithPiper:
                             # Fallback for /api/generate format (just in case)
                             elif 'response' in chunk:
                                 content = chunk['response']
-                                
+
                             if content:
                                 print(content, end="", flush=True)
                                 full_response += content
-                                
+
                             if chunk.get('done'):
                                 if self.debug:
                                     print(f"\nDEBUG: Generation complete. Total stats: {chunk.get('total_duration', 0)/1e9:.2f}s")
-                                
+
                         except Exception as e:
                             if self.debug:
                                 print(f"\nDEBUG: JSON parse error: {e}")
                             continue
-                
+
                 if not full_response and thinking_response:
                     # Fallback for servers/models that still stream into `thinking`.
                     print(thinking_response, end="", flush=True)
@@ -801,9 +802,9 @@ class ChatAppWithPiper:
                 print()
                 if not full_response and self.debug:
                     print("DEBUG: Warning - Empty response received from Ollama")
-                    
+
                 return full_response
-                
+
         except asyncio.TimeoutError:
             print(f"\n⚠️ Ollama request timed out after {timeout_seconds}s")
             return None
@@ -823,16 +824,16 @@ class ChatAppWithPiper:
             pose = create_head_pose(roll=angle)
             reachy.goto_target(head=pose, duration=0.3)
             await asyncio.sleep(0.1)
-            
+
             if hasattr(reachy, 'l_antenna') and hasattr(reachy, 'r_antenna'):
                 reachy.l_antenna.goto_position(angle * 0.5, duration=0.2)
                 reachy.r_antenna.goto_position(-angle * 0.5, duration=0.2)
-            
+
             await asyncio.sleep(0.2)
-            
+
         reachy.goto_target(head=create_head_pose(), duration=0.5)
 
-    def _speak_and_animate(self, response: str, emotion: str, intensity: str, 
+    def _speak_and_animate(self, response: str, emotion: str, intensity: str,
                            emotion_level: float, stop_event: threading.Event = None) -> bool:
         """
         Helper to run speech and animation with interrupt support.
@@ -840,7 +841,7 @@ class ChatAppWithPiper:
         if not self.controller:
             print("❌ No controller available!")
             return True
-            
+
         try:
             return self.controller.speak_with_interrupt(
                 response, emotion, intensity, emotion_level, stop_event
@@ -902,18 +903,18 @@ class ChatAppWithPiper:
                         return
 
                     print("\n🎤 VAD ASR + Async mode: press Ctrl-C to stop")
-                    
+
                     async with aiohttp.ClientSession() as session:
                         # Check model once
                         await self.check_ollama_model(session)
-                        
+
                         while True:
                             try:
                                 print("\n🎙️ Speak now... (Ctrl+C to exit)")
-                                
+
                                 # Step 4 A: Timing - ASR
                                 asr_start = time.time()
-                                
+
                                 if self.use_vad:
                                     # VAD-based recording - stops on silence
                                     transcription = await asyncio.to_thread(
@@ -931,53 +932,53 @@ class ChatAppWithPiper:
                                         duration=4.0,
                                         show_volume=True
                                     )
-                                
+
                                 asr_time = time.time() - asr_start
-                                
+
                                 if not transcription:
                                     print("⚠️ No speech detected, try again")
                                     continue
 
                                 # Step 2: Add to history
                                 self.history.add_user_message(transcription)
-                                
+
                                 print(f"📝 You: {transcription}")
                                 if self.history.enabled:
                                     print(f"  {self.history.get_summary()}")
                                 print("\n🤖 Reachy Mini: ", end="", flush=True)
-                                
+
                                 # Step 4 A: Timing - LLM
                                 llm_start = time.time()
-                                
+
                                 thinking_task = asyncio.create_task(self._show_thinking_animation(reachy, 10.0))
                                 llm_task = asyncio.create_task(self._get_ollama_response_async(transcription, session))
-                                
+
                                 response = await llm_task
-                                
+
                                 llm_time = time.time() - llm_start
-                                
+
                                 thinking_task.cancel()
                                 try:
                                     await thinking_task
                                 except asyncio.CancelledError:
                                     pass
-                                
+
                                 if response and self.controller:
                                     # Step 4 A: Timing - TTS/Animation
                                     tts_start = time.time()
-                                    
+
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
-                                    
+
                                     # Reset interrupt event
                                     self._stop_speaking_event.clear()
-                                    
+
                                     # Run TTS in thread with interrupt support
                                     speech_task = asyncio.create_task(asyncio.to_thread(
                                         self._speak_and_animate,
                                         response, emotion, intensity, emotion_level,
                                         self._stop_speaking_event
                                     ))
-                                    
+
                                     # Wait for TTS to complete or Ctrl+D to interrupt
                                     try:
                                         while not speech_task.done():
@@ -992,20 +993,20 @@ class ChatAppWithPiper:
                                                 except:
                                                     pass
                                             await asyncio.sleep(0.05)
-                                        
+
                                         speech_completed = await speech_task
                                     except asyncio.CancelledError:
                                         speech_completed = False
-                                    
+
                                     tts_time = time.time() - tts_start
                                     total_time = asr_time + llm_time + tts_time
-                                    
+
                                     # Step 2: Add to history
                                     self.history.add_assistant_message(response)
-                                    
+
                                     if not speech_completed:
                                         print("🎤 Ready for your next question...")
-                                    
+
                                     # Step 4 A: Display timing
                                     if self.debug:
                                         status = "completed" if speech_completed else "interrupted"
@@ -1023,7 +1024,7 @@ class ChatAppWithPiper:
                     async with aiohttp.ClientSession() as session:
                         # Check model once
                         await self.check_ollama_model(session)
-                        
+
                         while True:
                             try:
                                 user_input = input("\n🧑 You: ").strip()
@@ -1037,41 +1038,41 @@ class ChatAppWithPiper:
 
                                 # Step 2: Add to history
                                 self.history.add_user_message(user_input)
-                                
+
                                 print("\n🤖 Reachy Mini: ", end="", flush=True)
-                                
+
                                 # Step 4 A: Timing - LLM
                                 llm_start = time.time()
-                                
+
                                 thinking_task = asyncio.create_task(self._show_thinking_animation(reachy, 10.0))
                                 llm_task = asyncio.create_task(self._get_ollama_response_async(user_input, session))
-                                
+
                                 response = await llm_task
-                                
+
                                 llm_time = time.time() - llm_start
-                                
+
                                 thinking_task.cancel()
                                 try:
                                     await thinking_task
                                 except asyncio.CancelledError:
                                     pass
-                                
+
                                 if response and self.controller:
                                     # Step 4 A: Timing - TTS/Animation
                                     tts_start = time.time()
-                                    
+
                                     emotion, intensity, emotion_level = self.controller.analyze_emotion(response)
-                                    
+
                                     # Reset interrupt event
                                     self._stop_speaking_event.clear()
-                                    
+
                                     # Run TTS in thread with interrupt support
                                     speech_task = asyncio.create_task(asyncio.to_thread(
                                         self._speak_and_animate,
                                         response, emotion, intensity, emotion_level,
                                         self._stop_speaking_event
                                     ))
-                                    
+
                                     # Wait for TTS to complete or Ctrl+D to interrupt
                                     try:
                                         while not speech_task.done():
@@ -1086,20 +1087,20 @@ class ChatAppWithPiper:
                                                 except:
                                                     pass
                                             await asyncio.sleep(0.05)
-                                        
+
                                         speech_completed = await speech_task
                                     except asyncio.CancelledError:
                                         speech_completed = False
-                                    
+
                                     tts_time = time.time() - tts_start
                                     total_time = llm_time + tts_time
-                                    
+
                                     # Step 2: Add to history
                                     self.history.add_assistant_message(response)
-                                    
+
                                     if not speech_completed:
                                         print("🎤 Ready for your next question...")
-                                    
+
                                     # Step 4 A: Display timing
                                     if self.debug:
                                         status = "completed" if speech_completed else "interrupted"
@@ -1152,7 +1153,7 @@ def main():
                         help='Disable VAD - use fixed 4s recording instead')
 
     args = parser.parse_args()
-    
+
     # Needs aiohttp
     try:
         import aiohttp
@@ -1161,12 +1162,12 @@ def main():
         return
 
     app = ChatAppWithPiper(
-        model=args.model, 
-        ollama_url=args.url, 
+        model=args.model,
+        ollama_url=args.url,
         piper_model=args.piper_model,
         piper_config=args.piper_config,
         speaker_id=args.speaker,
-        debug=args.debug, 
+        debug=args.debug,
         use_asr=args.asr,
         gentle=args.gentle,
         history_size=args.history_size,
@@ -1178,7 +1179,6 @@ def main():
     )
 
     app.start_chat()
-
 
 if __name__ == '__main__':
     main()
