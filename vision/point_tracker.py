@@ -44,7 +44,7 @@ class PointTracker:
     Args:
         mode: 'strict' requires only index extended, 'loose' accepts any index extended
         min_detection_confidence: Detection threshold
-        tip_extension_ratio: How much longer tip must be vs PIP (default 1.3)
+        tip_extension_ratio: How much longer tip must be vs PIP (default 1.1, lower = easier)
     """
     
     # MediaPipe hand landmark indices
@@ -65,7 +65,7 @@ class PointTracker:
         mode: str = 'loose',  # 'strict' or 'loose'
         min_detection_confidence: float = 0.7,
         min_tracking_confidence: float = 0.5,
-        tip_extension_ratio: float = 1.2
+        tip_extension_ratio: float = 1.1  # Lower threshold = easier detection
     ):
         self.mode = mode
         self.min_detection_confidence = min_detection_confidence
@@ -110,19 +110,24 @@ class PointTracker:
         wrist = landmarks[self.WRIST]
         tip = landmarks[tip_idx]
         pip = landmarks[pip_idx]
-        mcp = landmarks[mcp_idx]
         
-        # Calculate distances from wrist
+        # Calculate distances from wrist (using squared distance for efficiency)
         def dist_sq(p1, p2):
             return (p1.x - p2.x) ** 2 + (p1.y - p2.y) ** 2
         
         tip_to_wrist = dist_sq(tip, wrist)
         pip_to_wrist = dist_sq(pip, wrist)
         
-        # Tip should be significantly farther than PIP
-        return tip_to_wrist > pip_to_wrist * self.tip_extension_ratio
+        # Safety check: avoid division by zero
+        if pip_to_wrist < 0.0001:
+            return False
+        
+        # Tip should be farther than PIP from wrist
+        # Using ratio: tip distance / pip distance > threshold
+        ratio = tip_to_wrist / pip_to_wrist
+        return ratio > self.tip_extension_ratio
     
-    def _is_pointing_gesture(self, landmarks) -> bool:
+    def _is_pointing_gesture(self, landmarks, debug: bool = False) -> bool:
         """Check if hand is making pointing gesture.
         
         Returns True if index finger is extended.
@@ -132,6 +137,9 @@ class PointTracker:
         index_extended = self._is_finger_extended(
             landmarks, self.INDEX_TIP, self.INDEX_PIP, self.INDEX_MCP
         )
+        
+        if debug:
+            print(f"        Index extended: {index_extended}")
         
         if not index_extended:
             return False
@@ -148,17 +156,21 @@ class PointTracker:
                 landmarks, 20, 18, 17  # Pinky
             )
             
+            if debug:
+                print(f"        Middle: {middle_extended}, Ring: {ring_extended}, Pinky: {pinky_extended}")
+            
             # Only index should be extended
             return not (middle_extended or ring_extended or pinky_extended)
         
         # Loose mode: just need index extended
         return True
     
-    def detect_pointing(self, frame) -> Optional[PointingResult]:
+    def detect_pointing(self, frame, debug: bool = False) -> Optional[PointingResult]:
         """Detect pointing gesture in frame.
         
         Args:
             frame: OpenCV BGR image
+            debug: Print debug info
             
         Returns:
             PointingResult or None if no pointing detected
@@ -174,14 +186,21 @@ class PointTracker:
         results = self._hands.process(rgb_frame)
         
         if not results or not results.multi_hand_landmarks:
+            if debug:
+                print("      🔍 No hand detected by MediaPipe")
             return None
+        
+        if debug:
+            print(f"      🔍 MediaPipe found {len(results.multi_hand_landmarks)} hand(s)")
         
         # Get the first detected hand
         hand_landmarks = results.multi_hand_landmarks[0]
         landmarks = hand_landmarks.landmark
         
         # Check for pointing gesture
-        if not self._is_pointing_gesture(landmarks):
+        is_pointing = self._is_pointing_gesture(landmarks, debug=debug)
+        
+        if not is_pointing:
             return None
         
         # Get hand info

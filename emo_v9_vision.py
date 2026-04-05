@@ -325,7 +325,9 @@ class ChatAppWithVision(ChatAppWithPiper):
                         print(f"      📷 Frame {frame_count}: {'got frame' if frame is not None else 'no frame'}")
                     
                     if frame is not None:
-                        result = self.point_tracker.detect_pointing(frame)
+                        # Enable debug for first 30 frames to diagnose issues
+                        debug_mode = frame_count <= 30
+                        result = self.point_tracker.detect_pointing(frame, debug=debug_mode)
                         
                         if result:
                             self._is_pointing = True
