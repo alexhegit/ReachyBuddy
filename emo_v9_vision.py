@@ -102,7 +102,10 @@ class ChatAppWithVision(ChatAppWithPiper):
         print("-" * 60)
         
         try:
-            with ReachyMini(media_backend="no_media") as reachy:
+            # Use "default" media backend to enable camera for vision
+            # Options: "default", "opencv", "gstreamer", "no_media"
+            media_backend = "default" if self.vision_enabled else "no_media"
+            with ReachyMini(media_backend=media_backend) as reachy:
                 print("✅ Connected to Reachy Mini")
                 
                 # Disable automatic body yaw for recorded moves
