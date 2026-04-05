@@ -63,9 +63,9 @@ class PointTracker:
     def __init__(
         self,
         mode: str = 'loose',  # 'strict' or 'loose'
-        min_detection_confidence: float = 0.7,
+        min_detection_confidence: float = 0.5,  # Lower = easier detection
         min_tracking_confidence: float = 0.5,
-        tip_extension_ratio: float = 1.1  # Lower threshold = easier detection
+        tip_extension_ratio: float = 1.05  # Even lower threshold
     ):
         self.mode = mode
         self.min_detection_confidence = min_detection_confidence
@@ -84,13 +84,15 @@ class PointTracker:
         if self._hands is None:
             try:
                 import mediapipe as mp
+                print(f"      📦 Initializing MediaPipe Hands (detection_conf={self.min_detection_confidence})")
                 self._hands = mp.solutions.hands.Hands(
                     static_image_mode=False,
-                    max_num_hands=1,  # Track one hand for pointing
+                    max_num_hands=2,  # Allow 2 hands for better detection
                     min_detection_confidence=self.min_detection_confidence,
                     min_tracking_confidence=self.min_tracking_confidence
                 )
                 self._mp_drawing = mp.solutions.drawing_utils
+                print(f"      ✅ MediaPipe Hands initialized")
             except ImportError as e:
                 raise ImportError(
                     f"MediaPipe not installed: {e}. Run: pip install mediapipe"
@@ -179,15 +181,42 @@ class PointTracker:
         
         import mediapipe as mp
         
+        # Validate frame
+        if frame is None or frame.size == 0:
+            if debug:
+                print("      🔍 Invalid frame")
+            return None
+        
+        h, w = frame.shape[:2]
+        if h < 100 or w < 100:
+            if debug:
+                print(f"      🔍 Frame too small: {w}x{h}")
+            return None
+        
         # Convert BGR to RGB
-        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        try:
+            rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        except Exception as e:
+            if debug:
+                print(f"      🔍 Color conversion failed: {e}")
+            return None
         
         # Process frame
         results = self._hands.process(rgb_frame)
         
-        if not results or not results.multi_hand_landmarks:
+        if not results:
             if debug:
-                print("      🔍 No hand detected by MediaPipe")
+                print("      🔍 MediaPipe returned None")
+            return None
+            
+        if not results.multi_hand_landmarks:
+            if debug:
+                print(f"      🔍 No hand landmarks (multi_hand_landmarks is None)")
+            return None
+        
+        if len(results.multi_hand_landmarks) == 0:
+            if debug:
+                print("      🔍 Empty hand landmarks list")
             return None
         
         if debug:

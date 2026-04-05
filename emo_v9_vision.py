@@ -142,7 +142,12 @@ class ChatAppWithVision(ChatAppWithPiper):
                     
                     # Hand pointing tracking
                     if self.enable_hand:
-                        self.point_tracker = PointTracker(mode='loose')
+                        print("   👉 Initializing hand pointing tracker...")
+                        self.point_tracker = PointTracker(
+                            mode='loose',
+                            min_detection_confidence=0.5,  # Easier detection
+                            tip_extension_ratio=1.05
+                        )
                         self._start_pointing_tracking(reachy)
                 
                 # Initialize emotion controller (from v9)
