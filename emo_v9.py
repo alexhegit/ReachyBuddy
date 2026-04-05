@@ -197,6 +197,40 @@ class PiperTTSEngine:
         # Piper synthesis is CPU bound, so run in a separate thread
         await asyncio.to_thread(self.speak_with_emotion, text, emotion)
 
+    def synthesize_to_buffer(self, text: str) -> Optional[Tuple[np.ndarray, int]]:
+        """Synthesize text to audio buffer without playing.
+        
+        Returns:
+            Tuple of (audio_data, sample_rate) or None if failed
+        """
+        if not text.strip() or not self.voice:
+            return None
+        
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
+                tmp_path = tmp.name
+            
+            with wave.open(tmp_path, "wb") as wav_file:
+                syn_config = None
+                if self.SynthesisConfig and self.speaker_id is not None:
+                    syn_config = self.SynthesisConfig(speaker_id=self.speaker_id)
+                self.voice.synthesize_wav(text, wav_file, syn_config=syn_config)
+            
+            data, sr = sf.read(tmp_path, dtype='float32')
+            return (data, sr) if data.size > 0 else None
+            
+        except Exception as e:
+            if self.debug:
+                print(f"⚠️ Synthesis error: {e}")
+            return None
+        finally:
+            try:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+            except:
+                pass
+
     def speak_with_interrupt(self, text: str, emotion: str = 'neutral',
                              stop_event: threading.Event = None) -> bool:
         """
@@ -279,6 +313,201 @@ class PiperTTSEngine:
         return await asyncio.to_thread(self.speak_with_interrupt, text, emotion)
 
 
+class StreamingTTS:
+    """Streaming TTS with sentence-level prefetch for smooth playback.
+    
+    Splits text into sentences and pre-synthesizes upcoming sentences
+    while current one is playing, eliminating gaps between sentences.
+    """
+    
+    def __init__(self, tts_engine: PiperTTSEngine, debug: bool = False):
+        self.tts = tts_engine
+        self.debug = debug
+        self._stop_event = threading.Event()
+        self._current_buffer: Optional[Tuple[np.ndarray, int]] = None
+        self._next_buffer: Optional[Tuple[np.ndarray, int]] = None
+        self._buffer_lock = threading.Lock()
+        self._is_speaking = False
+    
+    def _split_sentences(self, text: str) -> list[str]:
+        """Smart sentence splitting for Chinese/English mixed text.
+        
+        Handles:
+        - Chinese: 。 ？ ！ ； ……
+        - English: . ? ! ; ... (followed by space or uppercase)
+        - Protects common abbreviations (Dr., Mr., etc.)
+        """
+        if not text or not text.strip():
+            return []
+        
+        # Protect common abbreviations
+        protected = text
+        abbrev_map = {
+            "Dr.": "@@Dr@@", "Mr.": "@@Mr@@", "Mrs.": "@@Mrs@@",
+            "Ms.": "@@Ms@@", "Prof.": "@@Prof@@", "vs.": "@@vs@@",
+            "i.e.": "@@ie@@", "e.g.": "@@eg@@", "etc.": "@@etc@@",
+            "Inc.": "@@Inc@@", "Corp.": "@@Corp@@", "Ltd.": "@@Ltd@@"
+        }
+        for orig, repl in abbrev_map.items():
+            protected = protected.replace(orig, repl)
+        
+        # Sentence end patterns
+        # Pattern 1: Chinese punctuation
+        # Pattern 2: English punctuation followed by space + uppercase, or end of string
+        pattern = r'(?<=[。！？；…])(?![」』】\)\]）])|(?<=[.?!;])(?=\s+[A-Z"\'\[])|(?<=[.?!;])(?=\s*$)'
+        
+        raw_sentences = re.split(pattern, protected)
+        
+        # Restore protected text and filter
+        result = []
+        for s in raw_sentences:
+            # Restore abbreviations
+            restored = s
+            for orig, repl in abbrev_map.items():
+                restored = restored.replace(repl, orig)
+            
+            restored = restored.strip()
+            # Keep sentences with at least 2 chars (handles "Hi." etc.)
+            if len(restored) >= 2:
+                result.append(restored)
+        
+        if self.debug:
+            print(f"   🔤 Split into {len(result)} sentences: {result}")
+        
+        return result
+    
+    def _synthesize_async(self, text: str) -> Optional[Tuple[np.ndarray, int]]:
+        """Synthesize text in background."""
+        return self.tts.synthesize_to_buffer(text)
+    
+    def speak_streaming(self, text: str, emotion: str = 'neutral') -> bool:
+        """Speak text with streaming and prefetch.
+        
+        Returns:
+            True if completed, False if interrupted
+        """
+        if not text.strip():
+            return True
+        
+        self._stop_event.clear()
+        self._is_speaking = True
+        
+        sentences = self._split_sentences(text)
+        if not sentences:
+            # Fallback: speak whole text as one
+            sentences = [text]
+        
+        print(f"🔊 Speaking {len(sentences)} sentence(s) with streaming...")
+        
+        interrupted = False
+        
+        try:
+            # Pre-synthesize first sentence
+            if self.debug:
+                print(f"   🔄 Pre-synthesizing sentence 1/{len(sentences)}")
+            self._current_buffer = self._synthesize_async(sentences[0])
+            
+            if self._current_buffer is None:
+                print("❌ Failed to synthesize first sentence")
+                return False
+            
+            # Pre-fetch second sentence in background
+            if len(sentences) > 1:
+                if self.debug:
+                    print(f"   🔄 Background synthesis: sentence 2/{len(sentences)}")
+                prefetch_thread = threading.Thread(
+                    target=self._prefetch_worker,
+                    args=(sentences[1],)
+                )
+                prefetch_thread.daemon = True
+                prefetch_thread.start()
+            
+            # Play sentences with prefetch
+            for i, sentence in enumerate(sentences):
+                if self._stop_event.is_set():
+                    interrupted = True
+                    print("\n⏹️ Interrupted")
+                    break
+                
+                # Wait for current buffer to be ready
+                with self._buffer_lock:
+                    buffer_to_play = self._current_buffer
+                    self._current_buffer = None
+                
+                if buffer_to_play is None:
+                    if self.debug:
+                        print(f"   ⏳ Waiting for sentence {i+1}...")
+                    # Fallback: synthesize on-the-fly
+                    buffer_to_play = self._synthesize_async(sentence)
+                
+                if buffer_to_play is None:
+                    print(f"⚠️ Failed to synthesize sentence {i+1}")
+                    continue
+                
+                # Start prefetching next sentence while playing current
+                if i + 2 < len(sentences):
+                    if self.debug:
+                        print(f"   🔄 Background synthesis: sentence {i+3}/{len(sentences)}")
+                    prefetch_thread = threading.Thread(
+                        target=self._prefetch_worker,
+                        args=(sentences[i + 2],)
+                    )
+                    prefetch_thread.daemon = True
+                    prefetch_thread.start()
+                
+                # Play current sentence
+                if self.debug:
+                    print(f"   ▶️ Playing sentence {i+1}/{len(sentences)}: '{sentence[:40]}...'")
+                
+                data, sr = buffer_to_play
+                sd.play(data, samplerate=sr)
+                
+                # Wait for playback with interrupt check
+                while sd.get_stream() is not None and sd.get_stream().active:
+                    if self._stop_event.is_set():
+                        sd.stop()
+                        interrupted = True
+                        print("\n⏹️ Interrupted")
+                        break
+                    time.sleep(0.05)
+                
+                if interrupted:
+                    break
+                
+                # Move next buffer to current
+                with self._buffer_lock:
+                    self._current_buffer = self._next_buffer
+                    self._next_buffer = None
+            
+            return not interrupted
+            
+        except Exception as e:
+            print(f"❌ Streaming TTS error: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+        finally:
+            self._is_speaking = False
+            sd.stop()
+    
+    def _prefetch_worker(self, text: str):
+        """Background worker to synthesize next sentence."""
+        try:
+            buffer = self._synthesize_async(text)
+            with self._buffer_lock:
+                self._next_buffer = buffer
+            if self.debug:
+                print(f"   ✅ Prefetch ready: '{text[:30]}...'")
+        except Exception as e:
+            if self.debug:
+                print(f"   ⚠️ Prefetch failed: {e}")
+    
+    def stop(self):
+        """Stop current playback."""
+        self._stop_event.set()
+        sd.stop()
+
+
 class ConversationHistory:
     """Manages conversation history for context-aware responses."""
 
@@ -339,16 +568,25 @@ class EmotionControllerV71(EmotionControllerV6):
     """Emotion controller using Piper-TTS instead of Edge-TTS."""
 
     def __init__(self, reachy: ReachyMini, piper_model: str, piper_config: str = None,
-                 speaker_id: int = 0, debug: bool = False, gentle_mode: bool = False):
+                 speaker_id: int = 0, debug: bool = False, gentle_mode: bool = False,
+                 use_streaming_tts: bool = True):
         # Step 1 Fix: Skip parent __init__ to avoid creating EdgeTTSEngine
         # Instead, directly initialize only what we need
         self.reachy = reachy
         self.debug = debug
         self.gentle_mode = gentle_mode
         self.is_speaking_action = False
+        self.use_streaming_tts = use_streaming_tts
 
         # Use Piper TTS directly (no Edge-TTS)
         self.tts_engine = PiperTTSEngine(piper_model, piper_config, speaker_id, debug)
+        
+        # Wrap with streaming TTS for sentence-level prefetch
+        if use_streaming_tts:
+            self.streaming_tts = StreamingTTS(self.tts_engine, debug=debug)
+        else:
+            self.streaming_tts = None
+        
         self.lip_sync = LipSyncControllerV5(reachy, debug=self.debug)
 
         # Load both libraries for richer motions
@@ -548,19 +786,142 @@ class EmotionControllerV71(EmotionControllerV6):
         """
         print(f"🎙️ Speaking: '{text[:50]}...'")
 
-        # Use shorter move durations for more dynamic action (like emo_v6)
+        # Use streaming TTS if available (sentence-level prefetch)
+        if self.use_streaming_tts and self.streaming_tts:
+            return self._speak_with_streaming(text, emotion, intensity, level, stop_event)
+        
+        # Fallback to original non-streaming implementation
+        return self._speak_with_interrupt_legacy(text, emotion, intensity, level, stop_event)
+    
+    def _speak_with_streaming(self, text: str, emotion: str, intensity: str, 
+                              level: float, stop_event: threading.Event) -> bool:
+        """Speak using streaming TTS with sentence-level prefetch."""
+        duration_map = {'high': 0.8, 'medium': 1.0, 'low': 1.2}
+        if self.gentle_mode:
+            duration_map = {'high': 1.0, 'medium': 1.3, 'low': 1.5}
+        base_move_duration = duration_map.get(intensity, 1.0)
+        
+        emotion_level = 0.5 if emotion == 'neutral' else 0.8
+        
+        if self.gentle_mode:
+            print(f"   😌 Gentle streaming mode")
+        else:
+            print(f"   🎵 Streaming TTS with animations")
+        
+        # Split sentences for lip sync timing
+        sentences = self.streaming_tts._split_sentences(text)
+        if not sentences:
+            sentences = [text]
+        
+        # Start lip sync for entire text
+        self.lip_sync.start_lip_sync(text, emotion_level)
+        
+        # Animation state
+        last_move = None
+        used_moves = set()
+        animation_active = True
+        tts_completed = False
+        
+        def animation_loop():
+            """Background animation loop."""
+            nonlocal last_move, animation_active
+            while animation_active and not (stop_event and stop_event.is_set()):
+                try:
+                    import random
+                    roll = random.randint(0, 99)
+                    
+                    if roll < 50:
+                        move, _, speed = self._choose_animation_for_emotion(
+                            emotion, intensity, avoid_move=last_move, used_moves=used_moves
+                        )
+                        if move:
+                            last_move = move
+                            used_moves.add(move)
+                            move_duration = base_move_duration / speed
+                            if not self.gentle_mode:
+                                print(f"   🎬 {move} ({move_duration:.1f}s)")
+                            else:
+                                print(f"   🎬 Gentle: {move}")
+                            self._play_recorded_move(move, move_duration)
+                        else:
+                            self._simple_nod_once()
+                            time.sleep(0.8)
+                    elif roll < 75:
+                        if not self.gentle_mode:
+                            print("   🎭 Combined action")
+                            self._execute_random_combined_action(emotion)
+                        else:
+                            self._simple_thoughtful_tilt_once()
+                            time.sleep(0.8)
+                    else:
+                        print("   🔄 Body turn")
+                        try:
+                            angle = random.choice([-0.5, -0.25, 0.25, 0.5])
+                            head_tilt = random.choice([
+                                create_head_pose(),
+                                create_head_pose(roll=10, degrees=True),
+                                create_head_pose(roll=-10, degrees=True),
+                            ])
+                            self.reachy.goto_target(head=head_tilt, body_yaw=angle, duration=0.4)
+                            time.sleep(0.45)
+                            self.reachy.goto_target(head=create_head_pose(), body_yaw=0.0, duration=0.4)
+                            time.sleep(0.45)
+                        except Exception:
+                            pass
+                    
+                    if not tts_completed:
+                        time.sleep(0.3)
+                except Exception as e:
+                    if self.debug:
+                        print(f"⚠️ Animation error: {e}")
+                    time.sleep(0.5)
+        
+        # Start animation thread
+        import threading
+        anim_thread = threading.Thread(target=animation_loop, daemon=True)
+        anim_thread.start()
+        
+        # Run streaming TTS
+        try:
+            # Connect streaming TTS stop_event to our stop_event
+            if stop_event:
+                self.streaming_tts._stop_event = stop_event
+            
+            speak_result = self.streaming_tts.speak_streaming(text, emotion)
+            tts_completed = True
+        except Exception as e:
+            print(f"⚠️ Streaming TTS error: {e}")
+            speak_result = False
+        finally:
+            tts_completed = True
+            animation_active = False
+        
+        # Stop lip sync
+        self.lip_sync.stop_lip_sync()
+        
+        # Wait for animation to finish
+        anim_thread.join(timeout=5.0)
+        
+        # Reset body
+        try:
+            self.reachy.goto_target(body_yaw=0.0, duration=0.5)
+        except Exception:
+            pass
+        
+        return speak_result
+    
+    def _speak_with_interrupt_legacy(self, text: str, emotion: str, intensity: str,
+                                     level: float, stop_event: threading.Event) -> bool:
+        """Original non-streaming TTS implementation."""
         duration_map = {'high': 0.8, 'medium': 1.0, 'low': 1.2}
         if self.gentle_mode:
             duration_map = {'high': 1.0, 'medium': 1.3, 'low': 1.5}
         base_move_duration = duration_map.get(intensity, 1.0)
 
-        # Run TTS and animation in parallel
         import threading
-
         tts_done = threading.Event()
 
         def animation_thread():
-            """Run animation in separate thread."""
             try:
                 emotion_level = 0.5 if emotion == 'neutral' else 0.8
 
@@ -569,16 +930,12 @@ class EmotionControllerV71(EmotionControllerV6):
                 else:
                     print(f"   🎵 Starting lip sync and continuous animations")
 
-                # Always start lip sync so the robot keeps moving during the whole speech
                 self.lip_sync.start_lip_sync(text, emotion_level)
 
-                # Continuously play moves while TTS is running (like emo_v6/v8)
                 last_move = None
                 used_moves = set()
                 while not tts_done.is_set():
                     import random
-                    # Randomly choose action type for richer variety:
-                    # 0-49% recorded move, 50-74% combined action, 75-99% body yaw
                     roll = random.randint(0, 99)
 
                     if roll < 50:
@@ -607,7 +964,6 @@ class EmotionControllerV71(EmotionControllerV6):
                             self._simple_thoughtful_tilt_once()
                             time.sleep(0.8)
                     else:
-                        # Body yaw rotation with slight head tilt for more natural movement
                         print("   🔄 Body turn")
                         try:
                             angle = random.choice([-0.5, -0.25, 0.25, 0.5])
@@ -623,7 +979,6 @@ class EmotionControllerV71(EmotionControllerV6):
                         except Exception:
                             pass
 
-                    # Small pause between moves
                     if not tts_done.is_set():
                         time.sleep(0.3)
 
@@ -635,21 +990,16 @@ class EmotionControllerV71(EmotionControllerV6):
                 traceback.print_exc()
                 self.lip_sync.stop_lip_sync()
 
-        # Start animation in background thread
         anim_thread = threading.Thread(target=animation_thread, daemon=True)
         anim_thread.start()
 
-        # Run TTS (blocking with interrupt support)
         speak_result = self.tts_engine.speak_with_interrupt(
             text, emotion=emotion, stop_event=stop_event
         )
 
         tts_done.set()
-
-        # Wait for animation to complete (with timeout)
         anim_thread.join(timeout=20.0)
 
-        # Reset body yaw to center so the robot faces forward again
         try:
             self.reachy.goto_target(body_yaw=0.0, duration=0.5)
         except Exception:
@@ -673,7 +1023,8 @@ class ChatAppWithPiper:
                  asr_model: str = "small",
                  vad_silence: float = 0.8,
                  vad_aggressive: int = 1,
-                 use_vad: bool = True):
+                 use_vad: bool = True,
+                 use_streaming_tts: bool = True):
         self.model = model
         self.ollama_url = ollama_url
         self.debug = debug
@@ -682,15 +1033,16 @@ class ChatAppWithPiper:
         self.piper_model = piper_model
         self.piper_config = piper_config
         self.speaker_id = speaker_id
-        self.asr_model = asr_model  # Step 4 B: ASR model selection
-        self.vad_silence = vad_silence  # VAD silence threshold (default 0.8s, increase if cutting off)
-        self.vad_aggressive = vad_aggressive  # VAD aggressiveness 0-3 (1=gentle, 3=strict)
-        self.use_vad = use_vad  # Whether to use VAD or fixed-duration recording
+        self.asr_model = asr_model
+        self.vad_silence = vad_silence
+        self.vad_aggressive = vad_aggressive
+        self.use_vad = use_vad
+        self.use_streaming_tts = use_streaming_tts  # Enable sentence-level streaming TTS
 
         self.controller: Optional[EmotionControllerV71] = None
         self.asr_engine = None
 
-        # Step 2: Conversation history
+        # Conversation history
         self.history = ConversationHistory(max_rounds=history_size)
         self.history.enabled = enable_history
 
@@ -892,7 +1244,8 @@ class ChatAppWithPiper:
                     self.piper_config,
                     self.speaker_id,
                     self.debug,
-                    gentle_mode=self.gentle
+                    gentle_mode=self.gentle,
+                    use_streaming_tts=self.use_streaming_tts
                 )
 
                 reachy.goto_target(head=create_head_pose(), duration=1.0)
@@ -1247,7 +1600,8 @@ class ChatAppWithVision(ChatAppWithPiper):
                     self.piper_config,
                     self.speaker_id,
                     self.debug,
-                    gentle_mode=self.gentle
+                    gentle_mode=self.gentle,
+                    use_streaming_tts=self.use_streaming_tts
                 )
                 
                 reachy.goto_target(head=create_head_pose(), duration=1.0)
@@ -1837,6 +2191,9 @@ def main():
     parser.add_argument('--vad-aggressive', type=int, default=1, choices=[0, 1, 2, 3],
                         help='VAD aggressiveness: 0=least aggressive, 1=gentle, 2=strict, 3=most aggressive')
     parser.add_argument('--no-vad', action='store_true', help='Disable VAD - use fixed 4s recording instead')
+    # TTS streaming options
+    parser.add_argument('--no-streaming', action='store_true',
+                        help='Disable streaming TTS (sentence-level prefetch). Default: enabled')
 
     args = parser.parse_args()
     
@@ -1876,7 +2233,8 @@ def main():
             asr_model=args.asr_model,
             vad_silence=args.vad_silence,
             vad_aggressive=args.vad_aggressive,
-            use_vad=not args.no_vad
+            use_vad=not args.no_vad,
+            use_streaming_tts=not args.no_streaming
         )
     else:
         app = ChatAppWithPiper(
@@ -1893,7 +2251,8 @@ def main():
             asr_model=args.asr_model,
             vad_silence=args.vad_silence,
             vad_aggressive=args.vad_aggressive,
-            use_vad=not args.no_vad
+            use_vad=not args.no_vad,
+            use_streaming_tts=not args.no_streaming
         )
 
     app.start_chat()
