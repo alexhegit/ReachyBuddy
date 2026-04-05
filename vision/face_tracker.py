@@ -27,7 +27,7 @@ class FaceTracker:
         self,
         model_selection: int = 0,
         min_detection_confidence: float = 0.5,
-        smooth_factor: float = 0.25  # High smoothness
+        smooth_factor: float = 0.35  # Balanced smoothness
     ):
         self.model_selection = model_selection
         self.min_detection_confidence = min_detection_confidence

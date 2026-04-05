@@ -169,24 +169,24 @@ class ChatAppWithVision(ChatAppWithPiper):
         self.vision.on_person_leave = on_person_leave
     
     def _start_idle_face_tracking(self, reachy):
-        """Start background thread for ultra-smooth face tracking during idle.
+        """Start background thread for balanced smooth and responsive face tracking.
         
-        Optimized for maximum smoothness - natural, flowing head movement.
+        Optimized for low latency with good smoothness.
         """
         import threading
         
         def idle_tracker():
-            """Ultra-smooth face tracking when idle."""
-            print("   👁️  Idle face tracking started (ultra-smooth)")
+            """Balanced smooth and responsive face tracking when idle."""
+            print("   👁️  Idle face tracking started (balanced)")
             
-            # Very smooth EMA
+            # Moderate EMA for balance
             target_x: Optional[float] = None
             target_y: Optional[float] = None
-            ema_alpha = 0.08  # Very low = very smooth
+            ema_alpha = 0.25  # Balanced: responsive but smooth
             
             last_sent_pos: Optional[Tuple[int, int]] = None
-            min_update_interval = 0.15  # 6.6 FPS - lower frequency for smoother motion
-            position_threshold = 60  # Large threshold - only move for significant changes
+            min_update_interval = 0.1  # 10 FPS - good balance
+            position_threshold = 35  # Moderate threshold
             
             last_update_time = 0.0
             
@@ -195,7 +195,7 @@ class ChatAppWithVision(ChatAppWithPiper):
                 
                 # Rate limiting
                 if current_time - last_update_time < min_update_interval:
-                    time.sleep(0.02)
+                    time.sleep(0.01)
                     continue
                 
                 # Only track when not speaking (idle mode)
@@ -204,7 +204,7 @@ class ChatAppWithVision(ChatAppWithPiper):
                         if pos := self.vision.get_face_position():
                             raw_x, raw_y = pos
                             
-                            # Apply very strong EMA smoothing
+                            # Apply moderate EMA smoothing
                             if target_x is None:
                                 target_x = float(raw_x)
                                 target_y = float(raw_y)
@@ -214,47 +214,46 @@ class ChatAppWithVision(ChatAppWithPiper):
                             
                             final_pos = (int(target_x), int(target_y))
                             
-                            # Only update for significant movements (large threshold)
+                            # Update for moderate movements
                             should_update = True
                             if last_sent_pos:
                                 dx = abs(final_pos[0] - last_sent_pos[0])
                                 dy = abs(final_pos[1] - last_sent_pos[1])
-                                # Only move if face moved significantly
                                 if dx < position_threshold and dy < position_threshold:
                                     should_update = False
                             
                             if should_update:
                                 try:
-                                    # Long, smooth movement duration
+                                    # Balanced duration: smooth but responsive
                                     reachy.look_at_image(
                                         final_pos[0], final_pos[1], 
-                                        duration=0.8  # Long duration = very smooth
+                                        duration=0.5  # Balanced
                                     )
                                     last_sent_pos = final_pos
                                     last_update_time = current_time
                                     if self.debug:
-                                        print(f"   👁️  Smooth move to ({final_pos[0]},{final_pos[1]})")
+                                        print(f"   👁️  Track ({final_pos[0]},{final_pos[1]})")
                                 except Exception:
                                     pass
                     else:
-                        # No person - slowly return to center
+                        # No person - return to center
                         if last_sent_pos is not None:
                             try:
-                                reachy.goto_target(head=create_head_pose(), duration=1.0)
+                                reachy.goto_target(head=create_head_pose(), duration=0.8)
                                 last_sent_pos = None
                                 target_x = None
                                 target_y = None
                                 last_update_time = current_time
                                 if self.debug:
-                                    print("   👁️  No face - returning to center")
+                                    print("   👁️  No face - center")
                             except Exception:
                                 pass
                 
-                time.sleep(0.02)
+                time.sleep(0.01)
         
         tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
         tracker_thread.start()
-        print("   ✅ Ultra-smooth face tracking started")
+        print("   ✅ Balanced face tracking started")
     
     def _speak_and_animate_with_vision(
         self,
