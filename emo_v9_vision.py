@@ -131,11 +131,13 @@ class ChatAppWithVision(ChatAppWithPiper):
                 
                 # Initialize vision controller
                 if self.vision_enabled:
+                    # Create vision controller for camera access (always needed for vision)
+                    self.vision = VisionController(reachy, self._vision_config)
+                    self._setup_vision_callbacks()
+                    self.vision.start()
+                    
                     # Face tracking
                     if self.enable_face:
-                        self.vision = VisionController(reachy, self._vision_config)
-                        self._setup_vision_callbacks()
-                        self.vision.start()
                         self._start_idle_face_tracking(reachy)
                     
                     # Hand pointing tracking
@@ -310,17 +312,28 @@ class ChatAppWithVision(ChatAppWithPiper):
             last_point_pos: Optional[Tuple[int, int]] = None
             pointing_stable_count = 0
             min_stable_frames = 3  # Must be pointing for 3 frames
+            frame_count = 0
             
             while self.point_tracker:
                 # Get frame from camera
                 if self.vision and self.vision._camera:
                     frame = self.vision._get_frame()
+                    frame_count += 1
+                    
+                    # Log first few frames for debugging
+                    if frame_count <= 3:
+                        print(f"      📷 Frame {frame_count}: {'got frame' if frame is not None else 'no frame'}")
+                    
                     if frame is not None:
                         result = self.point_tracker.detect_pointing(frame)
                         
                         if result:
                             self._is_pointing = True
                             pointing_stable_count += 1
+                            
+                            # Log when pointing detected
+                            if pointing_stable_count == min_stable_frames:
+                                print(f"      ✋ Hand detected: {result.hand_side} hand pointing")
                             
                             # Only react after stable detection
                             if pointing_stable_count >= min_stable_frames:
@@ -339,15 +352,21 @@ class ChatAppWithVision(ChatAppWithPiper):
                                         print(f"   👉 Pointing at ({tip_x}, {tip_y})")
                                         reachy.look_at_image(tip_x, tip_y, duration=0.3)
                                         last_point_pos = (tip_x, tip_y)
-                                    except Exception:
-                                        pass
+                                    except Exception as e:
+                                        if self.debug:
+                                            print(f"      ⚠️ look_at_image failed: {e}")
                         else:
                             # Not pointing
                             if self._is_pointing and pointing_stable_count > 0:
-                                print("   👉 Stopped pointing")
+                                if self.debug:
+                                    print("   👉 Stopped pointing")
                             self._is_pointing = False
                             pointing_stable_count = 0
                             last_point_pos = None
+                else:
+                    if frame_count == 0:
+                        print("      ⚠️ Camera not available for pointing")
+                    frame_count = 1  # Only print once
                 
                 time.sleep(0.05)  # 20 FPS for responsive pointing
         
