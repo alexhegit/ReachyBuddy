@@ -81,6 +81,7 @@ class ChatAppWithVision(ChatAppWithPiper):
         # State for vision integration
         self._person_present = False
         self._face_tracking_active = False
+        self._is_speaking = False  # Track speaking state for idle face tracking
     
     async def start_chat_async(self):
         """Start chat with vision capabilities."""
@@ -117,6 +118,9 @@ class ChatAppWithVision(ChatAppWithPiper):
                     self.vision = VisionController(reachy, self._vision_config)
                     self._setup_vision_callbacks()
                     self.vision.start()
+                    
+                    # Start idle face tracking thread
+                    self._start_idle_face_tracking(reachy)
                 
                 # Initialize emotion controller (from v9)
                 self.controller = EmotionControllerV71(
@@ -150,25 +154,54 @@ class ChatAppWithVision(ChatAppWithPiper):
         if not self.vision:
             return
         
-        # When face detected: can be used for immediate reactions
-        def on_face(pos):
-            pass  # Face position used in animation loop
-        
         # When person enters frame: wake up if sleeping
         def on_person_enter():
             if self._vision_config.auto_wake and not self._person_present:
                 print("   👋 Person detected!")
                 self._person_present = True
-                # Could trigger wake animation here
         
         # When person leaves: could enter sleep mode
         def on_person_leave():
             self._person_present = False
             print("   😴 No person detected")
         
-        self.vision.on_face_detected = on_face
         self.vision.on_person_enter = on_person_enter
         self.vision.on_person_leave = on_person_leave
+    
+    def _start_idle_face_tracking(self, reachy):
+        """Start background thread for continuous face tracking during idle.
+        
+        When robot is not speaking, continuously look at user's face.
+        When speaking, let animation loop handle face tracking.
+        """
+        import threading
+        
+        def idle_tracker():
+            """Continuously track face when idle."""
+            print("   👁️  Idle face tracking started")
+            
+            while self.vision and self.vision._running:
+                # Only track when not speaking (idle mode)
+                if not self._is_speaking:
+                    if self.vision.is_person_present():
+                        if pos := self.vision.get_face_position():
+                            try:
+                                reachy.look_at_image(pos[0], pos[1], duration=0.2)
+                            except Exception:
+                                pass
+                    else:
+                        # No person - look at center (neutral)
+                        try:
+                            reachy.goto_target(head=create_head_pose(), duration=0.5)
+                        except Exception:
+                            pass
+                
+                # Update at 5 FPS during idle (smooth but not too aggressive)
+                time.sleep(0.2)
+        
+        tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
+        tracker_thread.start()
+        print("   ✅ Idle face tracking thread started")
     
     def _speak_and_animate_with_vision(
         self,
@@ -204,6 +237,9 @@ class ChatAppWithVision(ChatAppWithPiper):
         """Speak with face tracking enabled."""
         import threading
         
+        # Mark as speaking - this pauses idle face tracking
+        self._is_speaking = True
+        
         print(f"🎙️ Speaking: '{text[:50]}...'")
         
         # Duration setup (same as v9)
@@ -235,19 +271,20 @@ class ChatAppWithVision(ChatAppWithPiper):
                 while not tts_done.is_set():
                     import random
                     
-                    # Periodically look at face (every 1.5 seconds)
+                    # During speaking: occasional glance at face (less frequent)
+                    # Main face tracking happens during idle time
                     current_time = time.time()
-                    if current_time - last_face_look > 1.5:
-                        if self.vision:
-                            if self.vision.is_person_present():
-                                if pos := self.vision.get_face_position():
-                                    try:
-                                        self.controller.reachy.look_at_image(
-                                            pos[0], pos[1], duration=0.3
-                                        )
-                                        print(f"   👁️  Looking at face ({pos[0]}, {pos[1]})", flush=True)
-                                    except Exception as e:
-                                        print(f"   ⚠️ look_at_image failed: {e}", flush=True)
+                    if current_time - last_face_look > 3.0:  # Every 3 seconds while speaking
+                        if self.vision and self.vision.is_person_present():
+                            if pos := self.vision.get_face_position():
+                                try:
+                                    # Quick glance (0.2s) - doesn't interrupt actions much
+                                    self.controller.reachy.look_at_image(
+                                        pos[0], pos[1], duration=0.2
+                                    )
+                                    print(f"   👁️  Glance at face ({pos[0]}, {pos[1]})", flush=True)
+                                except Exception:
+                                    pass
                         last_face_look = current_time
                     
                     # Continue with normal animation (from v9)
@@ -308,6 +345,8 @@ class ChatAppWithVision(ChatAppWithPiper):
                 import traceback
                 traceback.print_exc()
                 self.controller.lip_sync.stop_lip_sync()
+                # Ensure speaking flag is cleared on error
+                self._is_speaking = False
         
         # Start animation thread
         anim_thread = threading.Thread(target=animation_thread, daemon=True)
@@ -320,6 +359,9 @@ class ChatAppWithVision(ChatAppWithPiper):
         
         tts_done.set()
         anim_thread.join(timeout=20.0)
+        
+        # Mark as not speaking - resume idle face tracking
+        self._is_speaking = False
         
         # Reset body
         try:
