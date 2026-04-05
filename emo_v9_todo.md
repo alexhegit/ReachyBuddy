@@ -77,6 +77,64 @@
 
 ---
 
+## 👁️ Vision Capability Extension (New)
+
+Architecture decision: **Plugin Mode (Option A)** - Incremental extension based on v9
+- Keep `emo_v9.py` stable, create `emo_v9_vision.py` + `vision_controller.py`
+- Vision is optional via `--vision` flag
+- Event-driven: visual detection triggers existing v9 features
+
+### Phase 1: Basic Vision (1-2 weeks)
+
+| Feature | Description | Tech Stack | Integration Point |
+|---------|-------------|------------|-------------------|
+| **Face Tracking** ⭐ P0 | Robot head follows user's face in real-time | MediaPipe Face Detection + `look_at_image()` | `animation_thread()` - check face pos every 100ms |
+| **Motion Wake-up** | Auto-wake when person enters frame; sleep when idle | Frame differencing + face detection | Idle loop state machine |
+
+### Phase 2: Interaction Enhancement (2-3 weeks)
+
+| Feature | Description | Tech Stack | Integration Point |
+|---------|-------------|------------|-------------------|
+| **Gesture Barge-in** ⭐ P0 | Wave hand to interrupt TTS; gestures for pause/stop | MediaPipe Hands | Parallel gesture monitor during `speak_with_interrupt()` |
+| **Emotion Awareness** | Detect user facial emotion to adjust robot response | DeepFace/FER | Inject into LLM system prompt via `analyze_user_emotion()` |
+
+### Phase 3: Cognitive Capabilities (3-4 weeks)
+
+| Feature | Description | Tech Stack | Integration Point |
+|---------|-------------|------------|-------------------|
+| **Visual QA** | "What do you see?" → Describe environment | LLaVA (local) or GPT-4V (API) | Prepend visual context to LLM prompt |
+| **Point & Ask** | User points at object, robot identifies it | MediaPipe Hands (index finger) + YOLOv8 | Hand landmark → `look_at_image()` → object crop → detection |
+| **Face Memory** | Recognize returning users by name | face_recognition library | Greeting logic in `start_chat_async()` |
+
+### Implementation Structure
+
+```
+vision/
+├── __init__.py
+├── controller.py         # VisionController main class
+├── face_tracker.py       # Face detection + tracking
+├── gesture_recognizer.py # Hand gesture recognition
+├── emotion_analyzer.py   # Facial expression analysis
+├── object_detector.py    # YOLO object detection (optional)
+└── visual_qa.py          # VLM visual question answering (optional)
+
+emo_v9_vision.py          # v9 + vision integration entry point
+```
+
+### Priority Matrix
+
+| Feature | Value | Difficulty | Priority | Est. Effort |
+|---------|-------|------------|----------|-------------|
+| Face Tracking | ⭐⭐⭐⭐⭐ | Low | P0 | 2 days |
+| Gesture Barge-in | ⭐⭐⭐⭐⭐ | Medium | P0 | 3 days |
+| Motion Wake-up | ⭐⭐⭐⭐ | Low | P1 | 1 day |
+| Emotion Awareness | ⭐⭐⭐⭐ | Medium | P1 | 3 days |
+| Visual QA | ⭐⭐⭐⭐⭐ | High | P2 | 5 days |
+| Point & Ask | ⭐⭐⭐ | High | P2 | 4 days |
+| Face Memory | ⭐⭐⭐ | Low | P2 | 2 days |
+
+---
+
 ## 📋 Feature Checklist (Already Implemented)
 
 - [x] Piper TTS offline speech synthesis
@@ -89,4 +147,4 @@
 
 ---
 
-*Last updated: 2026-03-31*
+*Last updated: 2026-04-05*
