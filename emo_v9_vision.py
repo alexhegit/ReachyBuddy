@@ -30,6 +30,7 @@ from emo_v9 import (
     ConversationHistory,
     PiperTTSEngine,
     LipSyncControllerV5,
+    FasterWhisperASREngine,
 )
 
 # Import vision module
