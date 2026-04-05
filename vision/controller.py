@@ -118,7 +118,7 @@ class VisionController:
             self.face_tracker = FaceTracker(
                 model_selection=0,  # Short range for desktop robot
                 min_detection_confidence=0.5,
-                smooth_factor=0.3
+                smooth_factor=0.5   # Responsive tracking
             )
         
         self._running = True
