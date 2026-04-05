@@ -61,6 +61,10 @@ class ChatAppWithVision(ChatAppWithPiper):
     def __init__(
         self,
         vision_enabled: bool = True,
+        vision_mode: Optional[str] = None,
+        enable_face: bool = True,
+        enable_hand: bool = False,
+        enable_object: bool = False,
         vision_fps: float = 15.0,
         vision_auto_wake: bool = True,
         *args,
@@ -69,12 +73,17 @@ class ChatAppWithVision(ChatAppWithPiper):
         super().__init__(*args, **kwargs)
         
         self.vision_enabled = vision_enabled and VISION_AVAILABLE
+        self.vision_mode = vision_mode
+        self.enable_face = enable_face
+        self.enable_hand = enable_hand
+        self.enable_object = enable_object
+        
         self.vision: Optional[VisionController] = None
         self._vision_config = VisionConfig(
             enabled=self.vision_enabled,
-            face_tracking=True,
+            face_tracking=enable_face,
             target_fps=vision_fps,
-            auto_wake=vision_auto_wake,
+            auto_wake=vision_auto_wake and enable_face,  # Only auto-wake if face enabled
             track_while_speaking=True
         )
         
@@ -90,8 +99,13 @@ class ChatAppWithVision(ChatAppWithPiper):
         print("=" * 60)
         
         if self.vision_enabled:
-            print("👁️  Vision features: ENABLED")
-            print(f"   - Face tracking: Yes")
+            print(f"👁️  Vision features: ENABLED (mode: {self.vision_mode})")
+            if self.enable_face:
+                print(f"   - Face tracking: Yes")
+            if self.enable_hand:
+                print(f"   - Hand gestures: Yes")
+            if self.enable_object:
+                print(f"   - Object detection: Yes")
             print(f"   - Target FPS: {self._vision_config.target_fps}")
             print(f"   - Auto wake: {self._vision_config.auto_wake}")
         else:
@@ -119,8 +133,9 @@ class ChatAppWithVision(ChatAppWithPiper):
                     self._setup_vision_callbacks()
                     self.vision.start()
                     
-                    # Start idle face tracking thread
-                    self._start_idle_face_tracking(reachy)
+                    # Start idle face tracking thread (if face tracking enabled)
+                    if self.enable_face:
+                        self._start_idle_face_tracking(reachy)
                 
                 # Initialize emotion controller (from v9)
                 self.controller = EmotionControllerV71(
@@ -323,21 +338,21 @@ class ChatAppWithVision(ChatAppWithPiper):
                 while not tts_done.is_set():
                     import random
                     
-                    # During speaking: occasional glance at face (less frequent)
-                    # Main face tracking happens during idle time
-                    current_time = time.time()
-                    if current_time - last_face_look > 3.0:  # Every 3 seconds while speaking
-                        if self.vision and self.vision.is_person_present():
-                            if pos := self.vision.get_face_position():
-                                try:
-                                    # Quick glance (0.2s) - doesn't interrupt actions much
-                                    self.controller.reachy.look_at_image(
-                                        pos[0], pos[1], duration=0.2
-                                    )
-                                    print(f"   👁️  Glance at face ({pos[0]}, {pos[1]})", flush=True)
-                                except Exception:
-                                    pass
-                        last_face_look = current_time
+                    # During speaking: occasional glance at face (if face tracking enabled)
+                    if self.enable_face:
+                        current_time = time.time()
+                        if current_time - last_face_look > 3.0:  # Every 3 seconds while speaking
+                            if self.vision and self.vision.is_person_present():
+                                if pos := self.vision.get_face_position():
+                                    try:
+                                        # Quick glance (0.2s) - doesn't interrupt actions much
+                                        self.controller.reachy.look_at_image(
+                                            pos[0], pos[1], duration=0.2
+                                        )
+                                        print(f"   👁️  Glance at face ({pos[0]}, {pos[1]})", flush=True)
+                                    except Exception:
+                                        pass
+                            last_face_look = current_time
                     
                     # Continue with normal animation (from v9)
                     roll = random.randint(0, 99)
@@ -621,9 +636,11 @@ def main():
     # Vision arguments
     parser.add_argument(
         '--vision', 
-        action='store_true',
-        default=True,
-        help='Enable vision features (default: True)'
+        nargs='?',
+        const='all',
+        default=None,
+        choices=['all', 'face', 'hand', 'object'],
+        help='Enable vision features: all (default), face (face tracking only), hand (gesture, future), object (future)'
     )
     parser.add_argument(
         '--no-vision',
@@ -661,15 +678,36 @@ def main():
     
     args = parser.parse_args()
     
-    # Determine vision enabled state
-    vision_enabled = args.vision and not args.no_vision
-    
+    # Determine vision mode
+    # --no-vision takes highest priority
     if args.no_vision:
-        vision_enabled = False
+        vision_mode = None  # Disabled
+    elif args.vision is None:
+        vision_mode = None  # Not specified, default off for now
+    else:
+        vision_mode = args.vision  # 'all', 'face', 'hand', or 'object'
+    
+    # Feature flags based on mode
+    enable_face = vision_mode in ['all', 'face']
+    enable_hand = vision_mode in ['all', 'hand']  # Future
+    enable_object = vision_mode in ['all', 'object']  # Future
+    
+    vision_enabled = vision_mode is not None
+    
+    # Print vision mode info
+    if vision_enabled:
+        print(f"👁️  Vision mode: {vision_mode}")
+        print(f"   - Face tracking: {'✅' if enable_face else '❌'}")
+        print(f"   - Hand gestures: {'✅' if enable_hand else '❌'}")
+        print(f"   - Object detection: {'✅' if enable_object else '❌'}")
     
     # Create app
     app = ChatAppWithVision(
         vision_enabled=vision_enabled,
+        vision_mode=vision_mode,
+        enable_face=enable_face,
+        enable_hand=enable_hand,
+        enable_object=enable_object,
         vision_fps=args.vision_fps,
         vision_auto_wake=not args.no_auto_wake,
         model=args.model,
