@@ -238,16 +238,22 @@ class ChatAppWithVision(ChatAppWithPiper):
                     # Periodically look at face (every 1.5 seconds)
                     current_time = time.time()
                     if current_time - last_face_look > 1.5:
-                        if self.vision and self.vision.is_person_present():
-                            if pos := self.vision.get_face_position():
-                                try:
-                                    self.controller.reachy.look_at_image(
-                                        pos[0], pos[1], duration=0.3
-                                    )
-                                    print(f"   👁️  Looking at face ({pos[0]}, {pos[1]})")
-                                except Exception:
-                                    pass
-                            last_face_look = current_time
+                        if self.vision:
+                            if self.vision.is_person_present():
+                                if pos := self.vision.get_face_position():
+                                    try:
+                                        self.controller.reachy.look_at_image(
+                                            pos[0], pos[1], duration=0.3
+                                        )
+                                        print(f"   👁️  Looking at face ({pos[0]}, {pos[1]})")
+                                    except Exception as e:
+                                        if self.debug:
+                                            print(f"   ⚠️ look_at_image failed: {e}")
+                                else:
+                                    print(f"   👁️  Person present but no face position")
+                            else:
+                                print(f"   👁️  No person detected")
+                        last_face_look = current_time
                     
                     # Continue with normal animation (from v9)
                     roll = random.randint(0, 99)
