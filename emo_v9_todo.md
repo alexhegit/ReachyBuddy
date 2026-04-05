@@ -86,10 +86,33 @@ Architecture decision: **Plugin Mode (Option A)** - Incremental extension based 
 
 ### Phase 1: Basic Vision (1-2 weeks)
 
-| Feature | Description | Tech Stack | Integration Point |
-|---------|-------------|------------|-------------------|
-| **Face Tracking** ⭐ P0 | Robot head follows user's face in real-time | MediaPipe Face Detection + `look_at_image()` | `animation_thread()` - check face pos every 100ms |
-| **Motion Wake-up** | Auto-wake when person enters frame; sleep when idle | Frame differencing + face detection | Idle loop state machine |
+| Feature | Description | Tech Stack | Integration Point | Status |
+|---------|-------------|------------|-------------------|--------|
+| **Face Tracking** ⭐ P0 | Robot head follows user's face in real-time | MediaPipe Face Detection + `look_at_image()` | `animation_thread()` - check face pos every 1.5s | 🚧 **In Progress** |
+| **Motion Wake-up** | Auto-wake when person enters frame; sleep when idle | Frame differencing + face detection | Idle loop state machine | ⏳ Pending |
+
+#### Face Tracking Implementation
+```
+vision/
+├── __init__.py           # Module exports
+├── face_tracker.py       # FaceTracker class with EMA smoothing
+└── controller.py         # VisionController with event callbacks
+
+emo_v9_vision.py          # Entry point extending ChatAppWithPiper
+```
+
+**Usage:**
+```bash
+python emo_v9_vision.py --vision --chat    # Enable face tracking
+python emo_v9_vision.py --no-vision        # Pure v9 mode
+```
+
+**Features:**
+- Real-time face detection via MediaPipe (CPU-friendly)
+- EMA smoothing to prevent head jitter
+- Periodic `look_at_image()` calls during speech (every 1.5s)
+- Auto person enter/leave detection with callbacks
+- Configurable FPS and detection timeout
 
 ### Phase 2: Interaction Enhancement (2-3 weeks)
 
