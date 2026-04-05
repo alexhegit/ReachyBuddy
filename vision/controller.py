@@ -170,7 +170,7 @@ class VisionController:
             
             # Log first successful frame capture
             if frame_count == 1:
-                print(f"   ✅ First frame captured: {frame.shape}")
+                print(f"   ✅ First frame captured: {frame.shape}", flush=True)
             
             # Process face tracking
             if self.config.face_tracking and self.face_tracker:
@@ -180,9 +180,9 @@ class VisionController:
                     self._face_position = pos
                     self._last_detection_time = time.time()
                     
-                    # Log first face detection
-                    if frame_count < 5 or frame_count % 30 == 0:
-                        print(f"   👤 Face detected at ({pos[0]}, {pos[1]})")
+                    # Log first face detection (only first 3 times, then throttle)
+                    if frame_count <= 3:
+                        print(f"   👤 Face detected at ({pos[0]}, {pos[1]})", flush=True)
                     
                     # Trigger callback
                     if self.on_face_detected:
@@ -218,7 +218,15 @@ class VisionController:
         return self._face_position
     
     def is_person_present(self) -> bool:
-        """Check if a person is currently detected."""
+        """Check if a person is currently detected.
+        
+        Returns True if face position is available (more reliable than state check).
+        """
+        # Check if we have a recent face position
+        if self._face_position is not None:
+            elapsed = time.time() - self._last_detection_time
+            if elapsed < self.config.detection_timeout:
+                return True
         return self.state == VisionState.PERSON_PRESENT
     
     def get_fps(self) -> float:

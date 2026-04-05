@@ -245,14 +245,9 @@ class ChatAppWithVision(ChatAppWithPiper):
                                         self.controller.reachy.look_at_image(
                                             pos[0], pos[1], duration=0.3
                                         )
-                                        print(f"   👁️  Looking at face ({pos[0]}, {pos[1]})")
+                                        print(f"   👁️  Looking at face ({pos[0]}, {pos[1]})", flush=True)
                                     except Exception as e:
-                                        if self.debug:
-                                            print(f"   ⚠️ look_at_image failed: {e}")
-                                else:
-                                    print(f"   👁️  Person present but no face position")
-                            else:
-                                print(f"   👁️  No person detected")
+                                        print(f"   ⚠️ look_at_image failed: {e}", flush=True)
                         last_face_look = current_time
                     
                     # Continue with normal animation (from v9)
