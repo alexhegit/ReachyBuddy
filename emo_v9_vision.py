@@ -184,31 +184,35 @@ class ChatAppWithVision(ChatAppWithPiper):
         self.vision.on_person_leave = on_person_leave
     
     def _start_idle_face_tracking(self, reachy):
-        """Start background thread for smooth low-latency face tracking.
+        """Start background thread for ultra-smooth face tracking.
         
-        Uses dual EMA: one for fast response, one for smooth output.
+        Prioritizes smoothness over low latency for natural movement.
         """
         import threading
         
         def idle_tracker():
-            """Smooth low-latency face tracking when idle."""
-            print("   👁️  Idle face tracking started (smooth low-latency)")
+            """Ultra-smooth face tracking when idle."""
+            print("   👁️  Idle face tracking started (ultra-smooth)")
             
-            # Dual EMA: fast for response, smooth for output
-            fast_x: Optional[float] = None
-            fast_y: Optional[float] = None
-            fast_alpha = 0.5  # Fast response
+            # Triple EMA for maximum smoothness
+            # Layer 1: Input smoothing
+            ema1_x: Optional[float] = None
+            ema1_y: Optional[float] = None
+            alpha1 = 0.3
             
-            smooth_x: Optional[float] = None
-            smooth_y: Optional[float] = None
-            smooth_alpha = 0.15  # High smoothness for output
+            # Layer 2: Secondary smoothing  
+            ema2_x: Optional[float] = None
+            ema2_y: Optional[float] = None
+            alpha2 = 0.2
+            
+            # Layer 3: Final output smoothing
+            ema3_x: Optional[float] = None
+            ema3_y: Optional[float] = None
+            alpha3 = 0.15
             
             last_sent_pos: Optional[Tuple[int, int]] = None
-            min_update_interval = 0.05  # 20 FPS
-            position_threshold = 25  # Balanced threshold
-            
-            # Movement detection for adaptive smoothing
-            movement_speed = 0.0
+            min_update_interval = 0.08  # 12.5 FPS - lower frequency for smoother motion
+            position_threshold = 40  # Higher threshold = fewer updates = smoother
             
             last_update_time = 0.0
             
@@ -216,7 +220,7 @@ class ChatAppWithVision(ChatAppWithPiper):
                 current_time = time.time()
                 
                 if current_time - last_update_time < min_update_interval:
-                    time.sleep(0.005)
+                    time.sleep(0.01)
                     continue
                 
                 if not self._is_speaking:
@@ -224,31 +228,25 @@ class ChatAppWithVision(ChatAppWithPiper):
                         if pos := self.vision.get_face_position():
                             raw_x, raw_y = pos
                             
-                            # Fast EMA for quick response
-                            if fast_x is None:
-                                fast_x = float(raw_x)
-                                fast_y = float(raw_y)
+                            # Triple EMA cascade
+                            if ema1_x is None:
+                                ema1_x, ema1_y = float(raw_x), float(raw_y)
+                                ema2_x, ema2_y = ema1_x, ema1_y
+                                ema3_x, ema3_y = ema2_x, ema2_y
                             else:
-                                fast_x = fast_alpha * raw_x + (1 - fast_alpha) * fast_x
-                                fast_y = fast_alpha * raw_y + (1 - fast_alpha) * fast_y
+                                # Layer 1
+                                ema1_x = alpha1 * raw_x + (1 - alpha1) * ema1_x
+                                ema1_y = alpha1 * raw_y + (1 - alpha1) * ema1_y
+                                # Layer 2
+                                ema2_x = alpha2 * ema1_x + (1 - alpha2) * ema2_x
+                                ema2_y = alpha2 * ema1_y + (1 - alpha2) * ema2_y
+                                # Layer 3 (output)
+                                ema3_x = alpha3 * ema2_x + (1 - alpha3) * ema3_x
+                                ema3_y = alpha3 * ema2_y + (1 - alpha3) * ema3_y
                             
-                            # Calculate movement speed for adaptive smoothing
-                            if smooth_x is not None:
-                                movement_speed = abs(fast_x - smooth_x) + abs(fast_y - smooth_y)
+                            final_pos = (int(ema3_x), int(ema3_y))
                             
-                            # Smooth EMA for output (adaptive: faster when moving, slower when still)
-                            if smooth_x is None:
-                                smooth_x = fast_x
-                                smooth_y = fast_y
-                            else:
-                                # Adaptive alpha: more smoothing when still, less when moving
-                                adaptive_alpha = 0.25 if movement_speed > 10 else 0.12
-                                smooth_x = adaptive_alpha * fast_x + (1 - adaptive_alpha) * smooth_x
-                                smooth_y = adaptive_alpha * fast_y + (1 - adaptive_alpha) * smooth_y
-                            
-                            final_pos = (int(smooth_x), int(smooth_y))
-                            
-                            # Check threshold
+                            # Higher threshold = fewer movements = smoother
                             should_update = True
                             if last_sent_pos:
                                 dx = abs(final_pos[0] - last_sent_pos[0])
@@ -258,10 +256,10 @@ class ChatAppWithVision(ChatAppWithPiper):
                             
                             if should_update:
                                 try:
-                                    # Balanced duration
+                                    # Longer duration for very smooth movement
                                     reachy.look_at_image(
                                         final_pos[0], final_pos[1], 
-                                        duration=0.35
+                                        duration=0.6  # Longer = smoother
                                     )
                                     last_sent_pos = final_pos
                                     last_update_time = current_time
@@ -272,23 +270,22 @@ class ChatAppWithVision(ChatAppWithPiper):
                     else:
                         if last_sent_pos is not None:
                             try:
-                                reachy.goto_target(head=create_head_pose(), duration=0.5)
+                                reachy.goto_target(head=create_head_pose(), duration=0.8)
                                 last_sent_pos = None
-                                fast_x = None
-                                fast_y = None
-                                smooth_x = None
-                                smooth_y = None
+                                ema1_x = ema1_y = None
+                                ema2_x = ema2_y = None
+                                ema3_x = ema3_y = None
                                 last_update_time = current_time
                                 if self.debug:
                                     print("   👁️  No face - center")
                             except Exception:
                                 pass
                 
-                time.sleep(0.005)
+                time.sleep(0.01)
         
         tracker_thread = threading.Thread(target=idle_tracker, daemon=True)
         tracker_thread.start()
-        print("   ✅ Smooth low-latency face tracking started")
+        print("   ✅ Ultra-smooth face tracking started")
     
     def _speak_and_animate_with_vision(
         self,
