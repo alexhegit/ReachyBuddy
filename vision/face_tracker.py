@@ -27,11 +27,13 @@ class FaceTracker:
         self,
         model_selection: int = 0,
         min_detection_confidence: float = 0.5,
-        smooth_factor: float = 0.35  # Balanced smoothness
+        smooth_factor: float = 0.35,  # Balanced smoothness
+        multi_face_strategy: str = "largest"  # "largest", "center", "leftmost"
     ):
         self.model_selection = model_selection
         self.min_detection_confidence = min_detection_confidence
         self.smooth_factor = smooth_factor
+        self.multi_face_strategy = multi_face_strategy
         
         # MediaPipe will be imported on first use to avoid startup overhead
         self._face_detection = None
@@ -98,8 +100,18 @@ class FaceTracker:
         if not results or not results.detections:
             return None
         
-        # Get the first (most prominent) face
-        detection = results.detections[0]
+        # Log multiple faces
+        num_faces = len(results.detections)
+        if num_faces > 1:
+            print(f"      👥 {num_faces} faces detected, using '{self.multi_face_strategy}' strategy")
+        
+        # Select face based on strategy
+        if num_faces == 1:
+            detection = results.detections[0]
+        else:
+            # Multiple faces - apply selection strategy
+            detection = self._select_face(results.detections, w, h)
+        
         bbox = detection.location_data.relative_bounding_box
         
         # Convert relative coordinates to absolute pixels
@@ -109,6 +121,53 @@ class FaceTracker:
         height = int(bbox.height * h)
         
         return (x, y, width, height)
+    
+    def _select_face(self, detections, frame_w, frame_h):
+        """Select which face to track when multiple detected.
+        
+        Strategies:
+        - "largest": Biggest face (closest person)
+        - "center": Face closest to image center (main subject)
+        - "leftmost": Leftmost face (reading order)
+        """
+        if self.multi_face_strategy == "largest":
+            # Select largest face by area
+            largest = None
+            max_area = 0
+            for det in detections:
+                bbox = det.location_data.relative_bounding_box
+                area = bbox.width * bbox.height
+                if area > max_area:
+                    max_area = area
+                    largest = det
+            return largest
+        
+        elif self.multi_face_strategy == "center":
+            # Select face closest to image center
+            center_x, center_y = frame_w / 2, frame_h / 2
+            closest = None
+            min_dist = float('inf')
+            for det in detections:
+                bbox = det.location_data.relative_bounding_box
+                face_cx = (bbox.xmin + bbox.width / 2) * frame_w
+                face_cy = (bbox.ymin + bbox.height / 2) * frame_h
+                dist = ((face_cx - center_x) ** 2 + (face_cy - center_y) ** 2) ** 0.5
+                if dist < min_dist:
+                    min_dist = dist
+                    closest = det
+            return closest
+        
+        else:  # "leftmost" or default
+            # Select leftmost face
+            leftmost = None
+            min_x = float('inf')
+            for det in detections:
+                bbox = det.location_data.relative_bounding_box
+                x = bbox.xmin * frame_w
+                if x < min_x:
+                    min_x = x
+                    leftmost = det
+            return leftmost
     
     def get_face_center(self, frame) -> Optional[Tuple[int, int]]:
         """Get smoothed face center coordinates.

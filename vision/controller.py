@@ -118,7 +118,8 @@ class VisionController:
             self.face_tracker = FaceTracker(
                 model_selection=0,  # Short range for desktop robot
                 min_detection_confidence=0.5,
-                smooth_factor=0.35  # Balanced
+                smooth_factor=0.35,  # Balanced
+                multi_face_strategy="largest"  # Track closest person
             )
         
         # Moderate FPS for balance
