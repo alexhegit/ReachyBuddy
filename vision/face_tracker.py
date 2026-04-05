@@ -55,14 +55,16 @@ class FaceTracker:
         if self._face_detection is None:
             try:
                 import mediapipe as mp
+                print(f"      📦 Initializing MediaPipe FaceDetection (model={self.model_selection}, conf={self.min_detection_confidence})")
                 self._face_detection = mp.solutions.face_detection.FaceDetection(
                     model_selection=self.model_selection,
                     min_detection_confidence=self.min_detection_confidence
                 )
                 self._mp_drawing = mp.solutions.drawing_utils
-            except ImportError:
+                print(f"      ✅ MediaPipe initialized")
+            except ImportError as e:
                 raise ImportError(
-                    "MediaPipe not installed. "
+                    f"MediaPipe not installed: {e}. "
                     "Run: pip install mediapipe"
                 )
     
@@ -77,7 +79,15 @@ class FaceTracker:
         """
         self._init_mediapipe()
         
-        import mediapipe as mp
+        # Validate frame
+        if frame is None or frame.size == 0:
+            print("      ⚠️  Invalid frame (None or empty)")
+            return None
+        
+        h, w = frame.shape[:2]
+        if h < 100 or w < 100:
+            print(f"      ⚠️  Frame too small: {w}x{h}")
+            return None
         
         # Convert BGR to RGB
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -85,7 +95,7 @@ class FaceTracker:
         # Process frame (MediaPipe uses process(), not detect())
         results = self._face_detection.process(rgb_frame)
         
-        if not results.detections:
+        if not results or not results.detections:
             return None
         
         # Get the first (most prominent) face
@@ -93,7 +103,6 @@ class FaceTracker:
         bbox = detection.location_data.relative_bounding_box
         
         # Convert relative coordinates to absolute pixels
-        h, w = frame.shape[:2]
         x = int(bbox.xmin * w)
         y = int(bbox.ymin * h)
         width = int(bbox.width * w)

@@ -151,6 +151,9 @@ class VisionController:
     def _processing_loop(self):
         """Main vision processing loop."""
         frame_interval = 1.0 / self.config.target_fps
+        frame_count = 0
+        
+        print("   🎥 Vision processing started")
         
         while self._running:
             start_time = time.time()
@@ -158,8 +161,16 @@ class VisionController:
             # Get frame
             frame = self._get_frame()
             if frame is None:
+                if frame_count == 0:
+                    print("   ⚠️  No frame available from camera")
                 time.sleep(frame_interval)
                 continue
+            
+            frame_count += 1
+            
+            # Log first successful frame capture
+            if frame_count == 1:
+                print(f"   ✅ First frame captured: {frame.shape}")
             
             # Process face tracking
             if self.config.face_tracking and self.face_tracker:
@@ -168,6 +179,10 @@ class VisionController:
                 if pos:
                     self._face_position = pos
                     self._last_detection_time = time.time()
+                    
+                    # Log first face detection
+                    if frame_count < 5 or frame_count % 30 == 0:
+                        print(f"   👤 Face detected at ({pos[0]}, {pos[1]})")
                     
                     # Trigger callback
                     if self.on_face_detected:
