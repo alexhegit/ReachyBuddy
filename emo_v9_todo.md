@@ -158,6 +158,94 @@ emo_v9_vision.py          # v9 + vision integration entry point
 
 ---
 
+## 🎙️ Wake Word - Design Discussion
+
+> Status: **Design Phase** - Not yet implemented  
+> Priority: High for user experience improvement
+
+### Current Pain Points
+
+| Aspect | Current State | Problem |
+|--------|--------------|---------|
+| **Interaction** | Must trigger `--asr` manually | Not natural, user needs to know when to speak |
+| **Multi-turn** | Each turn requires re-triggering ASR | Breaks conversation flow |
+| **Discoverability** | Robot is passive | Users don't know when robot is listening |
+
+### Proposed Improvements with Wake Word
+
+```
+Current Flow:
+User: (presses button) → ASR 4s recording → Response → (repeat)
+
+Wake Word Flow:
+User: "Hey Reachy" → Robot turns head + LED lights up → User speaks → Response
+User: "What about tomorrow?" → Continue conversation (no re-trigger needed)
+```
+
+### Technical Benefits
+
+1. **Lower Interaction Barrier**: Natural trigger like Alexa/Siri
+2. **Multi-turn Conversation**: Stay in listening mode after wake
+3. **Resource Efficiency**: Light wake word model runs always-on, full ASR only after wake
+4. **Clear Feedback**: Visual/audio confirmation when robot is listening
+
+### Implementation Options
+
+| Solution | Pros | Cons | Recommendation |
+|----------|------|------|----------------|
+| **Porcupine (Picovoice)** | Local, low latency, multilingual | Free tier limited (3 custom wake words) | ⭐ **First choice** |
+| **Snowboy** | Fully free, custom wake word | Discontinued, older models | Backup option |
+| **OpenWakeWord** | Open source, ONNX-based | Accuracy slightly lower | Self-hosted preference |
+| **Whisper Streaming** | Unified model | High CPU, higher latency | Not recommended |
+
+### Recommended Architecture
+
+```python
+# New CLI parameters
+python emo_v9.py --wake-word "hey reachy" --wake-sensitivity 0.7 --listen-timeout 5.0
+
+# Workflow
+1. Startup → Load lightweight Wake Word model (Porcupine)
+2. Always-on mic monitoring for wake word
+3. Detect wake word → Play sound + nod animation → Activate ASR
+4. ASR listening for 5 seconds (configurable)
+5. No speech detected → Return to wake word mode
+```
+
+### Implementation Phases
+
+#### Phase 1: Basic Wake Word (2-3 days)
+- Integrate Porcupine wake word detection
+- Add `--wake-word` and `--wake-sensitivity` parameters
+- Visual feedback (LED or head nod) when activated
+- Fallback to original `--asr` mode if wake word disabled
+
+#### Phase 2: Multi-turn Support (2 days)
+- Keep ASR active for N seconds after response
+- Allow follow-up questions without re-waking
+- Timeout returns to wake word mode
+
+#### Phase 3: Advanced Features (optional)
+- Custom wake word training
+- Voice activity detection before wake word
+- Wake word sensitivity auto-adjustment
+
+### Challenges & Considerations
+
+| Challenge | Mitigation |
+|-----------|-----------|
+| **Privacy concerns** | LED indicator shows listening state; local processing only |
+| **False wake-ups** | Configurable sensitivity; require specific phrase |
+| **Chinese wake word** | Limited training data; may need "Ni Hao Reachy" + English fallback |
+| **Mic always occupied** | Use exclusive mic access; release when not needed |
+
+### Estimated Effort
+- **Phase 1**: 2-3 days
+- **Phase 2**: 2 days  
+- **Total**: ~1 week for basic implementation
+
+---
+
 ## 📋 Feature Checklist (Already Implemented)
 
 - [x] Piper TTS offline speech synthesis
@@ -170,4 +258,5 @@ emo_v9_vision.py          # v9 + vision integration entry point
 
 ---
 
-*Last updated: 2026-04-05*
+*Last updated: 2026-04-05*  
+*Added: Wake Word design discussion*
