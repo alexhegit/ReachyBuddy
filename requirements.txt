@@ -30,5 +30,8 @@ piper-tts>=1.4.0
 
 # Vision capabilities (optional)
 # Required for face tracking, gesture recognition, etc.
-# mediapipe>=0.10.0
-# opencv-python>=4.8.0
+mediapipe>=0.10.0
+opencv-python>=4.8.0
+
+# ReachyCheese GUI (optional; app falls back to OpenCV GUI when unavailable)
+# dearpygui>=1.11.1
