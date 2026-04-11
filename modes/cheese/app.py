@@ -322,7 +322,7 @@ class VoiceIO:
                 silence_threshold=self.cfg.vad_silence,
                 aggressiveness=self.cfg.vad_aggressive,
                 trailing_buffer_ms=400,
-                show_volume=False,
+                show_volume=self.cfg.debug,  # Show volume bar in debug mode
             )
             return (text or "").strip().lower()
         except Exception:
