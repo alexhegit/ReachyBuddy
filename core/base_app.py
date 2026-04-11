@@ -91,18 +91,37 @@ class BaseModeApp(ABC):
             (ok, missing_packages)
         """
         import importlib
+        
+        # Package name -> module name mappings
+        PACKAGE_MAPPINGS = {
+            "opencv-python": "cv2",
+            "opencv_python": "cv2",
+            "pillow": "PIL",
+            "webrtcvad-wheels": "webrtcvad",
+            "webrtcvad_wheels": "webrtcvad",
+            "piper-tts": "piper",
+            "piper_tts": "piper",
+            "faster-whisper": "faster_whisper",
+            "faster_whisper": "faster_whisper",
+        }
+        
         missing = []
         for pkg in self.get_requirements():
-            # Handle package name mapping (e.g., "opencv-python" -> "cv2")
-            module_name = pkg.split("[")[0].replace("-", "_").lower()
-            if module_name in ("opencv_python",):
-                module_name = "cv2"
-            elif module_name == "pillow":
-                module_name = "PIL"
+            # Extract package name without extras (e.g., "package[extra]" -> "package")
+            pkg_name = pkg.split("[")[0].lower()
+            
+            # Get module name from mapping or convert package name
+            if pkg_name in PACKAGE_MAPPINGS:
+                module_name = PACKAGE_MAPPINGS[pkg_name]
+            else:
+                # Default: replace dashes with underscores
+                module_name = pkg_name.replace("-", "_")
+            
             try:
                 importlib.import_module(module_name)
             except ImportError:
                 missing.append(pkg)
+        
         return len(missing) == 0, missing
     
     @abstractmethod

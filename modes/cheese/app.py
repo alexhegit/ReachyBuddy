@@ -21,8 +21,7 @@ from core.runtime import create_runtime
 from utils.asr import FasterWhisperASREngine
 from utils.tts_engine import PiperTTSEngine
 
-if TYPE_CHECKING:
-    from .config import CheeseConfig
+from .config import CheeseConfig
 
 
 class RCState(str, Enum):

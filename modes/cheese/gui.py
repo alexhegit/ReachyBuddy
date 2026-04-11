@@ -11,9 +11,7 @@ try:
 except Exception:
     dpg = None
 
-if TYPE_CHECKING:
-    from .config import CheeseConfig
-    from .app import RCState
+from .config import CheeseConfig
 
 
 class CheeseGUI:
