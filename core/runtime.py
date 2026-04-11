@@ -93,18 +93,11 @@ class ReachyRuntime(RobotRuntime):
 
 
 class WebcamRuntime(RobotRuntime):
-    """Runtime for local webcam (testing without robot).
-    
-    Simulates robot tracking by drawing a "gaze" indicator on the frame.
-    """
+    """Runtime for local webcam (testing without robot)."""
     
     def __init__(self, camera_index: int = 0):
         self._camera_index = camera_index
         self._cap: Optional[cv2.VideoCapture] = None
-        self._gaze_x: Optional[int] = None
-        self._gaze_y: Optional[int] = None
-        self._body_yaw = 0.0
-        self._is_simulation = True
     
     def __enter__(self):
         self._cap = cv2.VideoCapture(self._camera_index)
@@ -113,7 +106,6 @@ class WebcamRuntime(RobotRuntime):
         # Set resolution for better performance
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-        print("ℹ️  Webcam mode: Robot tracking is simulated (no physical movement)")
         return self
     
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -127,33 +119,19 @@ class WebcamRuntime(RobotRuntime):
         ok, frame = self._cap.read()
         if not ok:
             return None
-        
-        # Draw gaze indicator to simulate robot tracking
-        if self._gaze_x is not None and self._gaze_y is not None:
-            import cv2
-            # Draw a circle where the robot is "looking"
-            cv2.circle(frame, (self._gaze_x, self._gaze_y), 10, (0, 0, 255), 2)
-            cv2.circle(frame, (self._gaze_x, self._gaze_y), 3, (0, 0, 255), -1)
-            # Draw line from center to gaze point
-            h, w = frame.shape[:2]
-            cv2.line(frame, (w // 2, h // 2), (self._gaze_x, self._gaze_y), (0, 0, 255), 1)
-        
         return frame
     
     def look_at_image(self, x: int, y: int, duration: float = 0.2) -> None:
-        """Simulate head movement by storing gaze position."""
-        self._gaze_x = x
-        self._gaze_y = y
+        # No-op for webcam
+        pass
     
     def goto_body_yaw(self, yaw: float, duration: float = 0.35) -> None:
-        """Simulate body rotation."""
-        self._body_yaw = yaw
+        # No-op for webcam
+        pass
     
     def reset_head(self, duration: float = 0.2) -> None:
-        """Reset gaze to center."""
-        self._gaze_x = None
-        self._gaze_y = None
-        self._body_yaw = 0.0
+        # No-op for webcam
+        pass
     
     def set_automatic_body_yaw(self, enabled: bool) -> None:
         # No-op for webcam
