@@ -587,16 +587,7 @@ class CheeseModeApp(BaseModeApp):
         out_path = self.cfg.save_dir / f"IMG_{timestamp}.jpg"
         
         try:
-            # Apply brightness/contrast adjustments to saved photo
-            frame_to_save = self._last_frame
-            if self.cfg.brightness != 0 or self.cfg.contrast != 1.0:
-                frame_to_save = cv2.convertScaleAbs(
-                    frame_to_save, 
-                    alpha=self.cfg.contrast, 
-                    beta=self.cfg.brightness
-                )
-            
-            cv2.imwrite(str(out_path), frame_to_save)
+            cv2.imwrite(str(out_path), self._last_frame)
             self._last_saved_path = str(out_path)
             print(f"📸 Saved: {out_path}")
             self.voice.speak("Photo saved.")
