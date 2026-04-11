@@ -312,6 +312,34 @@ class CheeseGUI:
         }
         color = state_colors.get(state.value, (200, 200, 200))
         cv2.circle(frame, (30, 30), 15, color, -1)
+        
+        # Draw tracking info
+        if status and status.get("has_face"):
+            dx = status.get("dx", 0)
+            dy = status.get("dy", 0)
+            info_text = f"dx={dx:+.0f} dy={dy:+.0f}"
+            cv2.putText(
+                frame,
+                info_text,
+                (10, h - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 255),
+                2,
+            )
+            
+            # Draw alignment target box (deadzone)
+            cx, cy = w // 2, h // 2
+            dz_x = int(25 * scale_x)  # deadzone_x
+            dz_y = int(20 * scale_y)  # deadzone_y
+            cv2.rectangle(
+                frame,
+                (cx - dz_x, cy - dz_y),
+                (cx + dz_x, cy + dz_y),
+                (0, 200, 200),
+                1,
+                cv2.LINE_DASHED,
+            )
     
     def _on_mouse(self, event, x, y, flags, param) -> None:
         """Handle mouse events for OpenCV GUI."""

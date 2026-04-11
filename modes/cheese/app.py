@@ -449,8 +449,8 @@ class CheeseModeApp(BaseModeApp):
         status = None
         
         if self.state == RCState.SLEEP:
-            # Just wait for wake word (processed in _process_voice_commands)
-            pass
+            # In sleep mode: still detect face for display, but don't control robot
+            status = self.aligner.update(None, frame, soft=False)  # runtime=None means no control
         
         elif self.state == RCState.TRACKING:
             status = self.aligner.update(self.runtime, frame, soft=False)
