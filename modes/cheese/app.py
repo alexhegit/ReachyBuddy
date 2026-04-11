@@ -214,11 +214,7 @@ class FaceAligner:
                     if dcmd_x < self._min_cmd_delta_px and dcmd_y < self._min_cmd_delta_px:
                         should_send = False
                 
-                if should_send:
-                    if runtime is None:
-                        if self._debug:
-                            print(f"   ⚠️ runtime is None, cannot move head")
-                    else:
+                if should_send and runtime is not None:
                         try:
                             duration = 0.34 if (soft or in_reacquire) else 0.24
                             if self._debug:
@@ -527,9 +523,13 @@ class CheeseModeApp(BaseModeApp):
             if event == "quit":
                 return False
             elif event == "manual_wake":
+                print(f"   🖱️  Manual wake button clicked!")
                 self.voice.speak("Manual wake.")
                 self.state = RCState.TRACKING
                 self.aligner.reset()
+                if hasattr(self, '_tracking_logged'):
+                    delattr(self, '_tracking_logged')
+                print(f"   ✅ State changed to TRACKING, runtime={self.runtime is not None}")
             elif event == "manual_capture":
                 if self.state in (RCState.TRACKING, RCState.ARMED):
                     self._start_countdown()
