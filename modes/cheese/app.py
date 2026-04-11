@@ -33,7 +33,7 @@ class RCState(str, Enum):
 
 
 class FaceAligner:
-    """Face tracking and alignment controller."""
+    """Face tracking and alignment controller with head-first, body-compensation strategy."""
     
     def __init__(self, config: CheeseConfig, debug: bool = False):
         from vision.face_tracker import FaceTracker
@@ -44,9 +44,23 @@ class FaceAligner:
             multi_face_strategy="largest",
             min_detection_confidence=config.min_detection_confidence,
         )
+        
+        # Thresholds
         self._deadzone_x = config.deadzone_x
         self._deadzone_y = config.deadzone_y
+        self._lock_hold_x = 35
+        self._lock_hold_y = 28
+        self._release_x = 45
+        self._release_y = 35
         self._stable_needed = config.stable_needed
+        self._reacquire_x = 170
+        self._reacquire_y = 130
+        
+        # Command limits
+        self._cmd_max_step_x = 95
+        self._cmd_max_step_y = 70
+        self._min_cmd_delta_px = 24
+        self._max_body_yaw = 0.8
         
         # Internal state
         self._stable_frames = 0
@@ -54,8 +68,11 @@ class FaceAligner:
         self._ema_dy = 0.0
         self._alpha = 0.30
         self._last_track_at = 0.0
-        self._locked = False
+        self._big_error_since = 0.0
         self._body_yaw = 0.0
+        self._body_cooldown_until = 0.0
+        self._settle_until = 0.0
+        self._locked = False
         self._last_cmd_center: Optional[Tuple[int, int]] = None
     
     def reset(self) -> None:
@@ -65,10 +82,13 @@ class FaceAligner:
         self._ema_dy = 0.0
         self._locked = False
         self._body_yaw = 0.0
+        self._big_error_since = 0.0
         self._last_cmd_center = None
+        self._settle_until = 0.0
+        self._body_cooldown_until = 0.0
     
     def update(self, runtime, frame, soft: bool = False) -> dict:
-        """Update face tracking."""
+        """Update face tracking with head-first, body-compensation control."""
         bbox = self._tracker.detect(frame)
         
         # Debug: log first detection
@@ -91,6 +111,21 @@ class FaceAligner:
         
         x, y, w, h = bbox
         frame_h, frame_w = frame.shape[:2]
+        
+        # Check minimum face area (1% of frame)
+        min_face_area = int(frame_w * frame_h * 0.01)
+        if (w * h) < min_face_area:
+            self._stable_frames = 0
+            return {
+                "has_face": False,
+                "aligned": False,
+                "bbox": None,
+                "center": None,
+                "dx": 0.0,
+                "dy": 0.0,
+                "stable_frames": 0,
+            }
+        
         cx, cy = x + (w // 2), y + (h // 2)
         dx = float(cx - frame_w // 2)
         dy = float(cy - frame_h // 2)
@@ -99,7 +134,7 @@ class FaceAligner:
         self._ema_dx = self._alpha * dx + (1 - self._alpha) * self._ema_dx
         self._ema_dy = self._alpha * dy + (1 - self._alpha) * self._ema_dy
         
-        # Check alignment
+        # Check alignment with hysteresis
         aligned_now = (abs(self._ema_dx) <= self._deadzone_x and 
                        abs(self._ema_dy) <= self._deadzone_y)
         self._stable_frames = self._stable_frames + 1 if aligned_now else 0
@@ -107,27 +142,91 @@ class FaceAligner:
         
         if aligned:
             self._locked = True
+        elif self._locked:
+            still_hold = (abs(self._ema_dx) <= self._lock_hold_x and 
+                         abs(self._ema_dy) <= self._lock_hold_y)
+            if not still_hold:
+                self._locked = False
         
-        # Control robot (simplified)
+        # Control timing
         now = time.time()
-        if now - self._last_track_at >= (0.28 if soft else 0.16):
+        in_reacquire = abs(self._ema_dx) > self._reacquire_x or abs(self._ema_dy) > self._reacquire_y
+        move_interval = 0.28 if soft else (0.22 if in_reacquire else 0.16)
+        need_move = abs(self._ema_dx) > self._release_x or abs(self._ema_dy) > self._release_y
+        
+        # During settle period, don't move
+        if now < self._settle_until:
+            return {
+                "has_face": True,
+                "aligned": aligned,
+                "bbox": (x, y, w, h),
+                "center": (cx, cy),
+                "dx": self._ema_dx,
+                "dy": self._ema_dy,
+                "stable_frames": self._stable_frames,
+            }
+        
+        # Execute control
+        if now - self._last_track_at >= move_interval:
             self._last_track_at = now
-            if runtime and (abs(self._ema_dx) > 45 or abs(self._ema_dy) > 35):
-                try:
-                    target_x = frame_w // 2 + int(np.clip(self._ema_dx * 0.55, -95, 95))
-                    target_y = frame_h // 2 + int(np.clip(self._ema_dy * 0.50, -70, 70))
-                    should_send = True
-                    if self._last_cmd_center:
-                        dcmd_x = abs(target_x - self._last_cmd_center[0])
-                        dcmd_y = abs(target_y - self._last_cmd_center[1])
-                        if dcmd_x < 24 and dcmd_y < 24:
-                            should_send = False
-                    if should_send:
-                        runtime.look_at_image(target_x, target_y, 
-                                              duration=0.34 if soft else 0.24)
+            did_body_move = False
+            
+            # BODY COMPENSATION (outer loop): Large deviation -> move body
+            if (need_move and not self._locked and 
+                abs(self._ema_dx) > 110 and now >= self._body_cooldown_until):
+                
+                if self._big_error_since == 0.0:
+                    self._big_error_since = now
+                elif now - self._big_error_since > (0.5 if in_reacquire else 0.7):
+                    step = 0.09 if self._ema_dx > 0 else -0.09
+                    self._body_yaw = max(-self._max_body_yaw, 
+                                         min(self._max_body_yaw, self._body_yaw + step))
+                    try:
+                        if runtime:
+                            runtime.goto_body_yaw(self._body_yaw, duration=0.42)
+                            runtime.reset_head(duration=0.28)
+                            if self._debug:
+                                print(f"   🔄 Body yaw: {self._body_yaw:.2f}")
+                    except Exception as e:
+                        if self._debug:
+                            print(f"   ⚠️ Body move error: {e}")
+                    
+                    self._big_error_since = 0.0
+                    self._body_cooldown_until = now + 0.9
+                    self._settle_until = now + 0.45
+                    self._last_cmd_center = None
+                    did_body_move = True
+            else:
+                self._big_error_since = 0.0
+            
+            # HEAD CONTROL (inner loop): Small adjustments
+            if need_move and not self._locked and not did_body_move:
+                target_x = frame_w // 2 + int(np.clip(
+                    self._ema_dx * 0.55, -self._cmd_max_step_x, self._cmd_max_step_x))
+                target_y = frame_h // 2 + int(np.clip(
+                    self._ema_dy * 0.50, -self._cmd_max_step_y, self._cmd_max_step_y))
+                
+                # Check if command changed enough
+                should_send = True
+                if self._last_cmd_center:
+                    dcmd_x = abs(target_x - self._last_cmd_center[0])
+                    dcmd_y = abs(target_y - self._last_cmd_center[1])
+                    if dcmd_x < self._min_cmd_delta_px and dcmd_y < self._min_cmd_delta_px:
+                        should_send = False
+                
+                if should_send and runtime:
+                    try:
+                        duration = 0.34 if (soft or in_reacquire) else 0.24
+                        runtime.look_at_image(target_x, target_y, duration=duration)
+                        if self._debug:
+                            print(f"   👁️  Look at ({target_x}, {target_y}) dx={self._ema_dx:+.0f} dy={self._ema_dy:+.0f}")
                         self._last_cmd_center = (target_x, target_y)
-                except Exception:
-                    pass
+                    except Exception as e:
+                        if self._debug:
+                            print(f"   ⚠️ Head move error: {e}")
+            
+            if not need_move:
+                self._last_cmd_center = None
         
         return {
             "has_face": True,
