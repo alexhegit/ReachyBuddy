@@ -48,7 +48,7 @@ except Exception:  # pragma: no cover - optional runtime dependency
     dpg = None
 
 try:
-    from emo_v9 import PiperTTSEngine
+    from utils.tts_engine import PiperTTSEngine
 except Exception:  # pragma: no cover - optional runtime dependency
     PiperTTSEngine = None  # type: ignore[assignment]
 
@@ -207,21 +207,34 @@ class VoiceIO:
         self._speak_thread.start()
 
     def close(self) -> None:
+        # Signal thread to stop
         self._speak_running = False
+        # Drain the queue to unblock any waiting threads
+        while not self._speak_queue.empty():
+            try:
+                self._speak_queue.get_nowait()
+            except queue.Empty:
+                break
         self._speak_queue.put("")  # Unblock the queue
         self._speak_thread.join(timeout=2.0)
+        # Force stop any active sounddevice streams first
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+        # Cleanup TTS resources
+        if self._tts:
+            try:
+                self._tts.close()
+            except Exception:
+                pass
         # Cleanup ASR resources
         if self._asr:
             try:
                 self._asr.close()
             except Exception:
                 pass
-        # Force stop any active sounddevice streams
-        try:
-            import sounddevice as sd
-            sd.stop()
-        except Exception:
-            pass
 
     def _speak_loop(self) -> None:
         while self._speak_running:
@@ -771,7 +784,9 @@ class ReachyCheeseApp:
         """Cleanup resources on exit."""
         print("\n🧹 Cleaning up...")
         self._stop_listener()
+        time.sleep(0.1)  # Give listener time to stop
         self.voice.close()
+        time.sleep(0.1)  # Give voice thread time to stop
         self.gui.close()
         # Ensure sounddevice is fully stopped
         try:
@@ -780,6 +795,8 @@ class ReachyCheeseApp:
         except Exception:
             pass
         print("👋 Goodbye!")
+        # Small delay to let threads fully terminate before Python teardown
+        time.sleep(0.2)
 
     def run(self) -> None:
         if not self.gui.available:
@@ -920,7 +937,17 @@ def parse_args() -> RCConfig:
 def main() -> None:
     cfg = parse_args()
     app = ReachyCheeseApp(cfg)
-    app.run()
+    try:
+        app.run()
+    except SystemExit:
+        raise
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        raise
+    finally:
+        # Force clean exit to avoid segfault from background threads
+        # during Python module teardown
+        sys.exit(0)
 
 
 if __name__ == "__main__":
