@@ -1,36 +1,37 @@
-# ReachyCheese 🧀🤖
+# ReachyBuddy 🤖
 
-**ReachyCheese** — A fully offline voice-interactive photo app for the Reachy Mini desktop robot.
+**ReachyBuddy** — A multi-mode robot application for Reachy Mini with pluggable modes:
 
-Capture perfect robot-perspective photos with voice wake-up, face tracking, and automatic alignment.
+- **🧀 Cheese Mode**: Voice photo capture with face tracking
+- **🔒 Guard Mode**: Multi-modal security monitoring (placeholder)
+- **💬 Chat Mode**: Voice conversation with LLM (placeholder)  
+- **🤖 Agent Mode**: AI agent with tools (placeholder)
 
 ![Demo](./assets/ReachyMiniChat.png)
 
 ---
 
-## ✨ Features
+## ✨ Modes
 
-- **🎙️ Voice Wake-up**: Say "Reachy" to wake the robot
-- **👤 Face Tracking**: Automatically track the largest face and align to center
-- **📸 Voice Capture**: Say "cheese", "take photo", or "take picture" to capture
-- **⏱️ Smart Countdown**: Audio prompts "One, two, three, cheese!" before capture
-- **🖼️ Real-time Preview**: GUI showing camera feed, face bounding box, status info
-- **💾 Auto Save**: Photos saved to `~/Pictures/ReachyMiniPhoto/`
-- **🔌 Fully Offline**: No network required, privacy protected
+### Cheese Mode (Implemented)
 
----
+Voice-interactive photo capture with automatic face tracking and alignment.
 
-## 🔄 Workflow
-
+**Workflow:**
 ```
 [Sleep] --"Reachy"--> [Tracking] --aligned--> [Armed] --"cheese"--> [Countdown] --> [Capture]
 ```
 
-1. **Sleep**: Standby, listening for wake word
-2. **Tracking**: Track and align the largest face
-3. **Armed**: Face aligned, waiting for capture command
-4. **Countdown**: Audio countdown prompt
-5. **Capture**: Take photo and save
+**Features:**
+- Voice wake-up ("Reachy")
+- Automatic face tracking with head + body compensation
+- Voice photo capture ("cheese", "take photo")
+- Smart countdown with audio prompts
+- Real-time GUI preview with face bounding box
+
+### Guard / Chat / Agent Modes (Placeholders)
+
+These modes are planned for future development. Running them will show a "coming soon" message.
 
 ---
 
@@ -49,7 +50,7 @@ Capture perfect robot-perspective photos with voice wake-up, face tracking, and 
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip ffmpeg libsndfile1 portaudio19-dev espeak
+sudo apt install -y python3 python3-venv python3-pip ffmpeg libsndfile1 portaudio19-dev espeak v4l-utils
 ```
 
 ### 2. Create Virtual Environment
@@ -92,29 +93,134 @@ Download additional voices from [Piper Voices](https://huggingface.co/rhasspy/pi
 reachy-mini-daemon --sim
 ```
 
-### Run ReachyCheese
+### Run Cheese Mode
 
 #### With Reachy Mini Robot
 
+Uses the robot's built-in camera and controls head/body movement:
+
 ```bash
-python ReachyCheese.py --camera-source reachy
+python main.py --cheese --camera-source reachy
 ```
 
 #### With Local Webcam (for testing)
 
-```bash
-python ReachyCheese.py --camera-source webcam --camera-index 0
-```
-
-#### Specify Voice Model
+Uses your computer's webcam. **Note:** Robot movement is disabled in webcam mode as there is no physical robot to control.
 
 ```bash
-python ReachyCheese.py --piper-model models/zh_CN-huayan-medium.onnx
+python main.py --cheese --camera-source webcam --camera-index 0
 ```
 
 ---
 
-## 🎮 Voice Commands
+## 📷 Camera Source Selection
+
+### Overview
+
+ReachyBuddy supports two camera source modes:
+
+| Mode | Camera Source | Robot Movement | Use Case |
+|------|--------------|----------------|----------|
+| `reachy` | Reachy Mini's built-in camera | ✅ Yes | Physical robot or simulator |
+| `webcam` | Local USB/webcam | ❌ No | Testing without robot |
+
+### `--camera-source reachy` (Recommended)
+
+**Automatically uses Reachy Mini's built-in camera** through the `reachy-mini` SDK.
+
+**Advantages:**
+- ✅ Guaranteed to use the correct camera regardless of other USB devices
+- ✅ Full robot control (head tracking, body rotation)
+- ✅ Optimized for Reachy Mini's camera parameters
+
+**Usage:**
+```bash
+# Physical robot
+python main.py --cheese --camera-source reachy
+
+# Simulator
+reachy-mini-daemon --sim
+python main.py --cheese --camera-source reachy
+```
+
+### `--camera-source webcam` (Testing Only)
+
+**Uses OpenCV `VideoCapture(index)` to access local cameras.**
+
+**Limitations:**
+- ❌ No robot movement (no physical robot connected)
+- ❌ Camera selection depends on system enumeration order
+- ✅ Good for testing face detection and GUI without robot
+
+**List available cameras:**
+```bash
+# List video devices
+v4l2-ctl --list-devices
+
+# Or check device files
+ls -la /dev/video*
+```
+
+**Select specific camera:**
+```bash
+# Use first camera (index 0, default)
+python main.py --cheese --camera-source webcam --camera-index 0
+
+# Use second camera (index 1)
+python main.py --cheese --camera-source webcam --camera-index 1
+
+# Use third camera (index 2)
+python main.py --cheese --camera-source webcam --camera-index 2
+```
+
+**Finding the right camera index:**
+
+If you have multiple cameras and aren't sure which index corresponds to which device:
+
+```python
+# test_cameras.py
+import cv2
+
+for i in range(5):
+    cap = cv2.VideoCapture(i)
+    if cap.isOpened():
+        ret, frame = cap.read()
+        if ret:
+            print(f"Camera {i}: OK - Resolution {frame.shape[1]}x{frame.shape[0]}")
+        else:
+            print(f"Camera {i}: Opened but cannot read frames")
+    else:
+        print(f"Camera {i}: Cannot open")
+    cap.release()
+```
+
+### Multiple Camera Setup Example
+
+Scenario: Your computer has:
+- Built-in laptop camera (`/dev/video0`)
+- External USB webcam (`/dev/video1`)
+- Reachy Mini connected (`/dev/video2`, `/dev/video3` - stereo cameras)
+
+**To use Reachy Mini:**
+```bash
+# Automatically uses Reachy Mini's cameras via SDK
+python main.py --cheese --camera-source reachy
+```
+
+**To use external USB webcam:**
+```bash
+# Try index 1 (usually the first USB camera)
+python main.py --cheese --camera-source webcam --camera-index 1
+```
+
+**To verify which camera is being used:**
+1. Cover the camera lens with your hand
+2. Check if the video feed goes dark
+3. If so, that's the camera being used
+
+---
+
+## 🎮 Voice Commands (Cheese Mode)
 
 | Command | Action |
 |---------|--------|
@@ -132,36 +238,51 @@ Two GUI backends supported:
 1. **Dear PyGui** (default, more features)
 2. **OpenCV** (fallback, no extra dependencies)
 
-Interface elements:
+**Interface elements:**
 - Real-time camera preview
 - Face detection bounding box (green)
 - Center crosshair
-- Current state display
+- Current state display (colored dot)
+- dx/dy tracking values
 - Countdown overlay
-- Manual control buttons (Wake / Take Photo / Cancel / Sleep)
+- Manual control buttons (Wake / Take Photo / Sleep)
+
+**State Indicator Colors:**
+- 🔘 Gray: Sleep mode (not tracking)
+- 🔵 Cyan: Tracking mode (following face)
+- 🟢 Green: Armed mode (aligned, ready for photo)
+- 🔴 Red: Countdown in progress
 
 ---
 
 ## ⚙️ Command Line Arguments
 
 ```
-python ReachyCheese.py [OPTIONS]
+python main.py --cheese [OPTIONS]
 
-Options:
-  --preview-width INT       Preview window width (default: 640)
-  --preview-height INT      Preview window height (default: 480)
-  --preview-fps FLOAT       Preview frame rate (default: 20.0)
-  --save-dir PATH           Photo save directory (default: ~/Pictures/ReachyMiniPhoto)
-  --wake-word TEXT          Wake word (default: reachy)
-  --asr-model {tiny,base,small,medium,large}  ASR model (default: base)
-  --vad-silence FLOAT       VAD silence threshold in seconds (default: 0.7)
-  --vad-aggressive {0,1,2,3} VAD aggressiveness (default: 1)
-  --piper-model PATH        Piper TTS model path
-  --piper-config PATH       Piper TTS config path
-  --speaker INT             Speaker ID (default: 0)
-  --camera-source {reachy,webcam} Camera source (default: reachy)
-  --camera-index INT        Camera index (default: 0)
-  --debug                   Enable debug output
+Global Options:
+  --camera-source {reachy,webcam}  Camera source (default: reachy)
+  --camera-index INT               Webcam index for webcam mode (default: 0)
+  --preview-width INT              Preview width (default: 640)
+  --preview-height INT             Preview height (default: 480)
+  --preview-fps FLOAT              Preview FPS (default: 20.0)
+  --gui-backend {auto,dpg,cv2,none}  GUI backend (default: auto)
+  --debug                          Enable debug output
+
+ASR Options:
+  --asr-model {tiny,base,small,medium,large}  ASR model size (default: base)
+  --vad-silence FLOAT              VAD silence threshold seconds (default: 0.7)
+  --vad-aggressive {0,1,2,3}       VAD aggressiveness (default: 1)
+
+TTS Options:
+  --piper-model PATH               Piper TTS model path
+  --piper-config PATH              Piper TTS config path
+  --speaker INT                    Speaker ID (default: 0)
+
+Cheese Mode Options:
+  --save-dir PATH                  Photo save directory
+  --wake-word TEXT                 Wake word (default: reachy)
+  --timeout FLOAT                  Command timeout in seconds (default: 12)
 ```
 
 ---
@@ -170,17 +291,23 @@ Options:
 
 ```
 ReachyBuddy/
-├── ReachyCheese.py          # Main application
-├── ReachyCheese_spec.md     # Design specification
-├── requirements.txt         # Python dependencies
-├── models/                  # TTS voice models
-│   ├── en-us-ryan-medium.onnx
-│   └── ...
-├── utils/
-│   └── asr.py              # ASR speech recognition module
-├── vision/
-│   └── face_tracker.py     # Face tracking module
-└── assets/                  # Image assets
+├── main.py                  # Entry point
+├── core/                    # Shared framework
+│   ├── base_app.py         # Base mode class
+│   ├── runtime.py          # Robot/webcam runtimes
+│   └── event_bus.py        # Event system
+├── modes/                   # Mode implementations
+│   ├── cheese/             # Photo capture mode
+│   ├── guard/              # Security monitoring (placeholder)
+│   ├── chat/               # Voice chat (placeholder)
+│   └── agent/              # AI agent (placeholder)
+├── utils/                   # Shared utilities
+│   ├── asr.py              # Speech recognition
+│   └── tts_engine.py       # Text-to-speech
+├── vision/                  # Computer vision
+│   └── face_tracker.py     # Face detection
+├── requirements/            # Per-mode dependencies
+└── models/                  # Voice models
 ```
 
 ---
@@ -206,9 +333,33 @@ ReachyBuddy/
 # Check available cameras
 ls /dev/video*
 
-# Test camera
-python -c "import cv2; cap = cv2.VideoCapture(0); print(cap.isOpened())"
+# List camera details
+v4l2-ctl --list-devices
+
+# Test specific camera
+python -c "import cv2; cap = cv2.VideoCapture(0); print(cap.isOpened()); cap.release()"
 ```
+
+### Reachy Mini Not Detected
+
+```bash
+# Check if robot is connected
+lsusb | grep -i reachy
+
+# Check device permissions
+ls -la /dev/ttyUSB* /dev/ttyACM* 2>/dev/null
+
+# Try with simulator
+reachy-mini-daemon --sim
+```
+
+### Wrong Camera Selected
+
+If using `--camera-source webcam` and getting the wrong camera:
+
+1. List all cameras: `v4l2-ctl --list-devices`
+2. Test each index: `python -c "import cv2; cap = cv2.VideoCapture(1); print(cap.isOpened())"`
+3. Use correct index: `--camera-source webcam --camera-index 1`
 
 ### Speech Not Recognized
 
