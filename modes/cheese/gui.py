@@ -103,9 +103,18 @@ class CheeseGUI:
         cv2.resizeWindow(
             self._window_name,
             self.cfg.preview_width,
-            self.cfg.preview_height + self._button_height + 60,
+            self.cfg.preview_height + self._button_height + 90,  # Extra space for trackbar
         )
         cv2.setMouseCallback(self._window_name, self._on_mouse)
+        
+        # Create brightness trackbar
+        cv2.createTrackbar(
+            "Brightness",
+            self._window_name,
+            50,  # Initial value (0 brightness at center)
+            100,  # Max value (-50 to +50 range)
+            self._on_brightness_change,
+        )
     
     @property
     def available(self) -> bool:
@@ -172,6 +181,9 @@ class CheeseGUI:
     
     def _draw_dpg(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using DearPyGui."""
+        # Apply brightness adjustment
+        frame = self.apply_brightness(frame)
+        
         # Get original dimensions
         src_h, src_w = frame.shape[:2]
         
@@ -201,6 +213,9 @@ class CheeseGUI:
     
     def _draw_cv2(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using OpenCV."""
+        # Apply brightness adjustment
+        frame = self.apply_brightness(frame)
+        
         # Get original dimensions
         src_h, src_w = frame.shape[:2]
         
@@ -379,6 +394,32 @@ class CheeseGUI:
             if bx <= x <= bx + btn_w and by <= y <= by + self._button_height:
                 self._event_queue.put(action)
                 return
+    
+    def _on_brightness_change(self, value: int) -> None:
+        """Handle brightness trackbar change.
+        
+        Trackbar value: 0-100, where 50 is center (no change)
+        Convert to -50 to +50 range for brightness adjustment.
+        """
+        # Convert 0-100 to -50 to +50
+        self.cfg.brightness = float(value - 50)
+    
+    def apply_brightness(self, frame: np.ndarray) -> np.ndarray:
+        """Apply brightness adjustment to frame.
+        
+        Args:
+            frame: Input BGR frame
+            
+        Returns:
+            Adjusted frame
+        """
+        if self.cfg.brightness == 0:
+            return frame
+        
+        # Use convertScaleAbs for brightness adjustment
+        # alpha = 1.0 (contrast), beta = brightness
+        adjusted = cv2.convertScaleAbs(frame, alpha=1.0, beta=self.cfg.brightness)
+        return adjusted
     
     def close(self) -> None:
         """Cleanup GUI resources."""

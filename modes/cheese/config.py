@@ -26,6 +26,9 @@ class CheeseConfig(ModeConfig):
     deadzone_y: int = 20
     stable_needed: int = 10
     
+    # Image adjustment
+    brightness: float = 0.0  # -100 to +100, 0 is no change
+    
     def __post_init__(self):
         """Ensure save_dir is a Path object."""
         if isinstance(self.save_dir, str):
