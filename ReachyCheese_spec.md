@@ -1,89 +1,89 @@
-# ReachyCheese 设计方案规格（Spec）
+# ReachyCheese Design Specification
 
-## 1. 项目目标
+## 1. Project Goals
 
-- 新版本不再命名为 `v10`，应用名改为 **ReachyCheese**。
-- 以 `ReachyCheese` 分支开发，目标是可逐步演进为独立发布的 App。
-- 实现一个**全离线**的 ReachyMini 语音交互拍照应用。
+- A fully offline voice-interactive photo app for Reachy Mini.
+- Designed to evolve into an independently publishable application.
 
-## 2. 核心用户流程
+## 2. Core User Flow
 
-1. 待机监听唤醒词 `"Reachy"`。
-2. 唤醒后进入人脸跟踪：对准画面中的**最大人脸**，让人脸尽量居中。
-3. 同时显示实时 GUI 预览（含人脸框、中心准星、状态信息）。
-4. 等待拍照口令（`"cheese" / "take photo" / "take picture"`）。
-5. 语音提示并倒计时后拍照：
+1. Standby and listen for wake word `"Reachy"`.
+2. Upon wake-up, enter face tracking: align the **largest face** to center.
+3. Display real-time GUI preview (face bounding box, center crosshair, status).
+4. Wait for capture phrase (`"cheese"`, `"take photo"`, `"take picture"`).
+5. Voice prompt and countdown:
    - `"Look at me. Hold still... Ready? One, two, three, cheese!"`
-6. 保存照片到 `~/Pictures/ReachyMiniPhoto/` 并确认，然后回到待机。
+6. Capture photo and save to `~/Pictures/ReachyMiniPhoto/`, then return to standby.
 
-## 3. 状态机设计
+## 3. State Machine
 
-- `Sleep`：待机，仅监听唤醒词
-- `Tracking`：持续跟踪最大人脸并对齐
-- `Armed`：已对齐，等待拍照口令
-- `Countdown`：语音提示 + 倒计时
-- `Capture`：拍照与保存
-- `SaveAndConfirm`：播报结果，回到 `Sleep`
+- `Sleep`: Standby, listening for wake word only
+- `Tracking`: Continuous face tracking and alignment
+- `Armed`: Face aligned, waiting for capture command
+- `Countdown`: Voice prompt + countdown
+- `Capture`: Photo capture and save
+- `SaveAndConfirm`: Announce result, return to `Sleep`
 
-## 4. 离线技术栈
+## 4. Offline Tech Stack
 
-- Wake Word：`openWakeWord`（常驻低功耗）
-- ASR：`faster-whisper` + VAD（命令识别）
-- TTS：`Piper`
-- LLM：`Ollama + Qwen3.5:0.8b`
-  - 用于扩展聊天或兜底，不放入关键拍照链路
+- **ASR**: `faster-whisper` + VAD (command recognition)
+- **TTS**: `Piper` (offline neural TTS)
+- **Face Detection**: MediaPipe Face Detection
+- **Wake Word**: Heuristic matching on ASR results
 
-## 5. GUI 方案
+## 5. GUI Design
 
-- 优先采用 **Dear PyGui**；若环境不支持则回退到 OpenCV 窗口 GUI（仍保留鼠标按钮交互）。
-- 实时预览降采样到 `640x480` 保证流畅。
-- 叠加内容：
-  - 最大人脸检测框
-  - 画面中心准星
-  - 当前状态（Sleep/Tracking/Armed/Countdown/Capture）
-  - 倒计时提示
-- 支持鼠标交互（手动拍照、取消倒计时、重拍等）。
+- **Primary**: Dear PyGui; fallback to OpenCV window GUI (with mouse button interaction)
+- Real-time preview downsampled to `640x480` for smooth performance
+- Overlays:
+  - Largest face detection box
+  - Center crosshair
+  - Current state (Sleep/Tracking/Armed/Countdown/Capture)
+  - Countdown timer
+- Mouse interaction (manual capture, cancel countdown, retake, etc.)
 
-## 6. 人脸跟踪控制策略（头+身体）
+## 6. Face Tracking Strategy (Head + Body)
 
-采用“**头优先、身体补偿**”双环控制：
+**"Head-first, body compensation"** dual-loop control:
 
-1. 每帧检测人脸并选最大人脸目标。
-2. 计算中心偏差 `dx/dy`（目标中心 vs 画面中心）。
-3. 使用 EMA 平滑与死区阈值减少抖动。
-4. **头部内环**：高频小步调整 head yaw/pitch。
-5. **身体外环**：当 head 接近极限或大偏差持续时，低频小步 body_yaw 补偿。
-6. 只有在“稳定对齐”连续满足 N 帧后，才进入倒计时拍照。
+1. Detect face and select largest target each frame.
+2. Calculate center offset `dx/dy` (target center vs. image center).
+3. Apply EMA smoothing and dead-zone thresholding to reduce jitter.
+4. **Inner head loop**: High-frequency small-step head yaw/pitch adjustment.
+5. **Outer body loop**: When head approaches limit or large offset persists, low-frequency small-step body_yaw compensation.
+6. Only enter countdown when "stable alignment" satisfies N consecutive frames.
 
-## 7. 对齐与拍照判定
+## 7. Alignment and Capture Criteria
 
-- 对齐成功条件（建议）：
-  - `|dx|`、`|dy|` 持续低于阈值
-  - 人脸框面积达到最小阈值（距离合理）
-  - 连续稳定帧满足门槛
-- 倒计时期间保持低频微调，避免构图漂移。
-- 在 `"cheese"` 时刻抓取当前帧保存。
+- **Alignment success conditions**:
+  - `|dx|`, `|dy|` consistently below threshold
+  - Face bounding box area reaches minimum threshold (reasonable distance)
+  - Continuous stable frames meet threshold
+- During countdown, maintain low-frequency fine-tuning to prevent drift.
+- Grab current frame at the `"cheese"` moment for saving.
 
-## 8. 照片存储规范
+## 8. Photo Storage Specification
 
-- 保存目录：`~/Pictures/ReachyMiniPhoto/`
-- 文件命名：`IMG_YYYYMMDD_HHMMSS.jpg`
-- 预览可为 640x480，存图优先原始帧分辨率（若可用）。
+- Save directory: `~/Pictures/ReachyMiniPhoto/`
+- File naming: `IMG_YYYYMMDD_HHMMSS.jpg`
+- Preview at 640x480, save original frame resolution if available.
 
-## 9. 异常与回退
+## 9. Error Handling
 
-- 无人脸/低置信度：提示用户看向镜头，继续跟踪。
-- 倒计时期间丢脸或偏差过大：取消倒计时，回 `Tracking/Armed`。
-- 保存失败：明确提示，不静默失败。
+- No face / low confidence: Prompt user to look at camera, continue tracking.
+- Face lost or large deviation during countdown: Cancel countdown, return to `Tracking/Armed`.
+- Save failure: Explicit error message, no silent failure.
 
-## 10. 架构方向（独立 App）
+## 10. Architecture (Independent App)
 
-- 优先使用更精简的组件化架构，避免继续扩展 `emo_v*` 单文件结构。
-- 推荐模块边界：
-  - `state_machine`
-  - `vision_tracker`
-  - `voice_io`（wake/asr/tts）
-  - `camera_preview_gui`
-  - `photo_storage`
-  - `reachy_controller`
-- 先完成 MVP 主链路，再迭代细化。
+Prefer lightweight component-based architecture over extending `emo_v*` monolithic structure.
+
+Recommended module boundaries:
+- `state_machine`
+- `vision_tracker`
+- `voice_io` (wake/asr/tts)
+- `camera_preview_gui`
+- `photo_storage`
+- `reachy_controller`
+
+Complete MVP main flow first, then iterate.

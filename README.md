@@ -1,58 +1,58 @@
 # ReachyCheese 🧀🤖
 
-**ReachyCheese** — 全离线语音交互拍照应用，专为 Reachy Mini 桌面机器人设计。
+**ReachyCheese** — A fully offline voice-interactive photo app for the Reachy Mini desktop robot.
 
-通过语音唤醒、人脸追踪、自动对齐，让你轻松拍出完美的机器人视角照片。
+Capture perfect robot-perspective photos with voice wake-up, face tracking, and automatic alignment.
 
 ![Demo](./assets/ReachyMiniChat.png)
 
 ---
 
-## ✨ 功能特点
+## ✨ Features
 
-- **🎙️ 语音唤醒**：说 "Reachy" 唤醒机器人
-- **👤 人脸追踪**：自动追踪最大人脸并对齐到画面中心
-- **📸 语音拍照**：说 "cheese"、"take photo" 或 "take picture" 拍照
-- **⏱️ 智能倒计时**：语音提示 "One, two, three, cheese!" 后自动拍摄
-- **🖼️ 实时预览**：GUI 界面显示摄像头画面、人脸框、状态信息
-- **💾 自动保存**：照片保存到 `~/Pictures/ReachyMiniPhoto/`
-- **🔌 全离线运行**：无需网络，保护隐私
+- **🎙️ Voice Wake-up**: Say "Reachy" to wake the robot
+- **👤 Face Tracking**: Automatically track the largest face and align to center
+- **📸 Voice Capture**: Say "cheese", "take photo", or "take picture" to capture
+- **⏱️ Smart Countdown**: Audio prompts "One, two, three, cheese!" before capture
+- **🖼️ Real-time Preview**: GUI showing camera feed, face bounding box, status info
+- **💾 Auto Save**: Photos saved to `~/Pictures/ReachyMiniPhoto/`
+- **🔌 Fully Offline**: No network required, privacy protected
 
 ---
 
-## 🔄 工作流程
+## 🔄 Workflow
 
 ```
-[Sleep 待机] --"Reachy"--> [Tracking 追踪] --对齐完成--> [Armed 待命] --"cheese"--> [Countdown 倒计时] --> [Capture 拍摄]
+[Sleep] --"Reachy"--> [Tracking] --aligned--> [Armed] --"cheese"--> [Countdown] --> [Capture]
 ```
 
-1. **Sleep**：待机监听唤醒词
-2. **Tracking**：追踪并对齐最大人脸
-3. **Armed**：人脸已对齐，等待拍照指令
-4. **Countdown**：语音提示倒计时
-5. **Capture**：拍照并保存
+1. **Sleep**: Standby, listening for wake word
+2. **Tracking**: Track and align the largest face
+3. **Armed**: Face aligned, waiting for capture command
+4. **Countdown**: Audio countdown prompt
+5. **Capture**: Take photo and save
 
 ---
 
-## 📋 系统要求
+## 📋 Requirements
 
-- **操作系统**：Ubuntu 22.04+ / Linux
-- **硬件**：AMD Ryzen AI 或 x86_64 平台
-- **机器人**：Pollen Robotics Reachy Mini（或仅摄像头模式测试）
-- **摄像头**：内置 USB 摄像头或笔记本摄像头
+- **OS**: Ubuntu 22.04+ / Linux
+- **Hardware**: AMD Ryzen AI or x86_64 platform
+- **Robot**: Pollen Robotics Reachy Mini (or webcam-only mode for testing)
+- **Camera**: USB webcam or built-in laptop camera
 
 ---
 
-## 🛠️ 安装
+## 🛠️ Installation
 
-### 1. 系统依赖
+### 1. System Dependencies
 
 ```bash
 sudo apt update
 sudo apt install -y python3 python3-venv python3-pip ffmpeg libsndfile1 portaudio19-dev espeak
 ```
 
-### 2. 创建虚拟环境
+### 2. Create Virtual Environment
 
 ```bash
 cd /path/to/ReachyBuddy
@@ -61,52 +61,52 @@ source venv/bin/activate
 pip install --upgrade pip
 ```
 
-### 3. 安装 Python 依赖
+### 3. Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. 安装 Reachy Mini SDK（如使用真实机器人）
+### 4. Install Reachy Mini SDK (for physical robot)
 
 ```bash
 pip install "reachy-mini[mujoco]"
 ```
 
-### 5. 下载语音模型
+### 5. Voice Models
 
-默认使用 Piper-TTS 的 Ryan 语音模型，已包含在 `models/` 目录：
+Default uses Piper-TTS Ryan voice model (included in `models/`):
 
-- `models/en-us-ryan-medium.onnx` - 英文男声（推荐）
-- `models/zh_CN-huayan-medium.onnx` - 中文女声
+- `models/en-us-ryan-medium.onnx` - English male voice (recommended)
+- `models/zh_CN-huayan-medium.onnx` - Chinese female voice
 
-如需其他语音，从 [Piper Voices](https://huggingface.co/rhasspy/piper-voices) 下载。
+Download additional voices from [Piper Voices](https://huggingface.co/rhasspy/piper-voices).
 
 ---
 
-## 🚀 使用方法
+## 🚀 Usage
 
-### 启动 Reachy Mini 模拟器（可选）
+### Start Reachy Mini Simulator (optional)
 
 ```bash
 reachy-mini-daemon --sim
 ```
 
-### 运行 ReachyCheese
+### Run ReachyCheese
 
-#### 使用 Reachy Mini 机器人
+#### With Reachy Mini Robot
 
 ```bash
 python ReachyCheese.py --camera-source reachy
 ```
 
-#### 使用本地摄像头测试
+#### With Local Webcam (for testing)
 
 ```bash
 python ReachyCheese.py --camera-source webcam --camera-index 0
 ```
 
-#### 指定语音模型
+#### Specify Voice Model
 
 ```bash
 python ReachyCheese.py --piper-model models/zh_CN-huayan-medium.onnx
@@ -114,129 +114,129 @@ python ReachyCheese.py --piper-model models/zh_CN-huayan-medium.onnx
 
 ---
 
-## 🎮 语音指令
+## 🎮 Voice Commands
 
-| 指令 | 说明 |
-|------|------|
-| "Reachy" / "Ricky" | 唤醒机器人 |
-| "cheese" / "cheeze" | 拍照 |
-| "take photo" / "take picture" | 拍照 |
-| "photo" / "picture" | 拍照 |
-
----
-
-## 🖥️ GUI 界面
-
-支持两种 GUI 后端：
-
-1. **Dear PyGui**（默认，功能更丰富）
-2. **OpenCV**（fallback，无需额外依赖）
-
-界面元素：
-- 实时摄像头预览
-- 人脸检测框（绿色）
-- 画面中心准星
-- 当前状态显示
-- 倒计时提示
-- 手动控制按钮（Wake / Take Photo / Cancel / Sleep）
+| Command | Action |
+|---------|--------|
+| "Reachy" / "Ricky" | Wake up the robot |
+| "cheese" / "cheeze" | Take photo |
+| "take photo" / "take picture" | Take photo |
+| "photo" / "picture" | Take photo |
 
 ---
 
-## ⚙️ 命令行参数
+## 🖥️ GUI Interface
+
+Two GUI backends supported:
+
+1. **Dear PyGui** (default, more features)
+2. **OpenCV** (fallback, no extra dependencies)
+
+Interface elements:
+- Real-time camera preview
+- Face detection bounding box (green)
+- Center crosshair
+- Current state display
+- Countdown overlay
+- Manual control buttons (Wake / Take Photo / Cancel / Sleep)
+
+---
+
+## ⚙️ Command Line Arguments
 
 ```
 python ReachyCheese.py [OPTIONS]
 
 Options:
-  --preview-width INT       预览窗口宽度 (默认: 640)
-  --preview-height INT      预览窗口高度 (默认: 480)
-  --preview-fps FLOAT       预览帧率 (默认: 20.0)
-  --save-dir PATH           照片保存目录 (默认: ~/Pictures/ReachyMiniPhoto)
-  --wake-word TEXT          唤醒词 (默认: reachy)
-  --asr-model {tiny,base,small,medium,large}  ASR模型 (默认: base)
-  --vad-silence FLOAT       VAD静音阈值秒数 (默认: 0.7)
-  --vad-aggressive {0,1,2,3} VAD灵敏度 (默认: 1)
-  --piper-model PATH        Piper TTS模型路径
-  --piper-config PATH       Piper TTS配置文件路径
-  --speaker INT             说话人ID (默认: 0)
-  --camera-source {reachy,webcam} 摄像头源 (默认: reachy)
-  --camera-index INT        摄像头索引 (默认: 0)
-  --debug                   启用调试输出
+  --preview-width INT       Preview window width (default: 640)
+  --preview-height INT      Preview window height (default: 480)
+  --preview-fps FLOAT       Preview frame rate (default: 20.0)
+  --save-dir PATH           Photo save directory (default: ~/Pictures/ReachyMiniPhoto)
+  --wake-word TEXT          Wake word (default: reachy)
+  --asr-model {tiny,base,small,medium,large}  ASR model (default: base)
+  --vad-silence FLOAT       VAD silence threshold in seconds (default: 0.7)
+  --vad-aggressive {0,1,2,3} VAD aggressiveness (default: 1)
+  --piper-model PATH        Piper TTS model path
+  --piper-config PATH       Piper TTS config path
+  --speaker INT             Speaker ID (default: 0)
+  --camera-source {reachy,webcam} Camera source (default: reachy)
+  --camera-index INT        Camera index (default: 0)
+  --debug                   Enable debug output
 ```
 
 ---
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```
 ReachyBuddy/
-├── ReachyCheese.py          # 主程序
-├── ReachyCheese_spec.md     # 设计规格文档
-├── requirements.txt         # Python 依赖
-├── models/                  # TTS 语音模型
+├── ReachyCheese.py          # Main application
+├── ReachyCheese_spec.md     # Design specification
+├── requirements.txt         # Python dependencies
+├── models/                  # TTS voice models
 │   ├── en-us-ryan-medium.onnx
 │   └── ...
 ├── utils/
-│   └── asr.py              # ASR 语音识别模块
+│   └── asr.py              # ASR speech recognition module
 ├── vision/
-│   └── face_tracker.py     # 人脸追踪模块
-└── assets/                  # 图片资源
+│   └── face_tracker.py     # Face tracking module
+└── assets/                  # Image assets
 ```
 
 ---
 
-## 🔧 技术栈
+## 🔧 Tech Stack
 
-| 组件 | 技术 |
-|------|------|
+| Component | Technology |
+|-----------|------------|
 | **ASR** | faster-whisper (CPU) |
 | **VAD** | webrtcvad |
 | **TTS** | Piper-TTS (ONNX) |
-| **人脸检测** | MediaPipe Face Detection |
+| **Face Detection** | MediaPipe Face Detection |
 | **GUI** | Dear PyGui / OpenCV |
-| **机器人控制** | reachy-mini SDK |
+| **Robot Control** | reachy-mini SDK |
 
 ---
 
-## 🐛 故障排除
+## 🐛 Troubleshooting
 
-### 摄像头无法打开
+### Camera Not Opening
 
 ```bash
-# 检查可用摄像头
+# Check available cameras
 ls /dev/video*
 
-# 测试摄像头
+# Test camera
 python -c "import cv2; cap = cv2.VideoCapture(0); print(cap.isOpened())"
 ```
 
-### 语音无法识别
+### Speech Not Recognized
 
-- 检查麦克风是否被占用
-- 尝试调整 `--vad-silence` 参数（0.5-1.5 之间）
-- 使用 `--debug` 查看详细日志
+- Check if microphone is occupied by another application
+- Try adjusting `--vad-silence` parameter (between 0.5-1.5)
+- Use `--debug` for detailed logs
 
-### TTS 无声音
+### No TTS Audio
 
 ```bash
-# 检查音频输出
+# Check audio output
 speaker-test -t wav
 
-# 检查 sounddevice
+# Check sounddevice
 python -c "import sounddevice as sd; print(sd.query_devices())"
 ```
 
 ---
 
-## 📄 许可证
+## 📄 License
 
-MIT License - 详见 [LICENSE](./LICENSE)
+MIT License - See [LICENSE](./LICENSE)
 
 ---
 
-## 🙏 致谢
+## 🙏 Acknowledgements
 
-- [Pollen Robotics](https://www.pollen-robotics.com/) - Reachy Mini 机器人
-- [Piper TTS](https://github.com/rhasspy/piper) - 离线语音合成
-- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) - 语音识别
-- [MediaPipe](https://mediapipe.dev/) - 人脸检测
+- [Pollen Robotics](https://www.pollen-robotics.com/) - Reachy Mini robot
+- [Piper TTS](https://github.com/rhasspy/piper) - Offline text-to-speech
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) - Speech recognition
+- [MediaPipe](https://mediapipe.dev/) - Face detection

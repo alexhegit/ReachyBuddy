@@ -1,4 +1,4 @@
-# ReachyCheese - 离线语音拍照应用依赖
+# ReachyCheese - Offline Voice Photo App Dependencies
 
 # Core
 numpy>=1.24.0
