@@ -797,6 +797,8 @@ class ReachyCheeseApp:
         print("👋 Goodbye!")
         # Small delay to let threads fully terminate before Python teardown
         time.sleep(0.2)
+        # Force immediate exit to avoid segfault from background threads during teardown
+        os._exit(0)
 
     def run(self) -> None:
         if not self.gui.available:
