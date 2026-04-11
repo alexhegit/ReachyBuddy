@@ -332,13 +332,13 @@ class CheeseGUI:
             cx, cy = w // 2, h // 2
             dz_x = int(25 * scale_x)  # deadzone_x
             dz_y = int(20 * scale_y)  # deadzone_y
+            # Use LINE_8 (solid) instead of LINE_DASHED for compatibility
             cv2.rectangle(
                 frame,
                 (cx - dz_x, cy - dz_y),
                 (cx + dz_x, cy + dz_y),
                 (0, 200, 200),
                 1,
-                cv2.LINE_DASHED,
             )
     
     def _on_mouse(self, event, x, y, flags, param) -> None:
