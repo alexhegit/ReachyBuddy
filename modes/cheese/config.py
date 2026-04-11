@@ -27,7 +27,8 @@ class CheeseConfig(ModeConfig):
     stable_needed: int = 10
     
     # Image adjustment
-    brightness: float = 0.0  # -100 to +100, 0 is no change
+    brightness: float = 0.0  # -50 to +50, 0 is no change
+    contrast: float = 1.0    # 0.5 to 2.0, 1.0 is no change
     
     def __post_init__(self):
         """Ensure save_dir is a Path object."""

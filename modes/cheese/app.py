@@ -587,11 +587,13 @@ class CheeseModeApp(BaseModeApp):
         out_path = self.cfg.save_dir / f"IMG_{timestamp}.jpg"
         
         try:
-            # Apply brightness adjustment to saved photo
+            # Apply brightness/contrast adjustments to saved photo
             frame_to_save = self._last_frame
-            if self.cfg.brightness != 0:
+            if self.cfg.brightness != 0 or self.cfg.contrast != 1.0:
                 frame_to_save = cv2.convertScaleAbs(
-                    frame_to_save, alpha=1.0, beta=self.cfg.brightness
+                    frame_to_save, 
+                    alpha=self.cfg.contrast, 
+                    beta=self.cfg.brightness
                 )
             
             cv2.imwrite(str(out_path), frame_to_save)

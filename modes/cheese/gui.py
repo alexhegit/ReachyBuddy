@@ -103,17 +103,26 @@ class CheeseGUI:
         cv2.resizeWindow(
             self._window_name,
             self.cfg.preview_width,
-            self.cfg.preview_height + self._button_height + 90,  # Extra space for trackbar
+            self.cfg.preview_height + self._button_height + 120,  # Extra space for trackbars
         )
         cv2.setMouseCallback(self._window_name, self._on_mouse)
         
-        # Create brightness trackbar
+        # Create brightness trackbar (0-100 maps to -50 to +50)
         cv2.createTrackbar(
             "Brightness",
             self._window_name,
             50,  # Initial value (0 brightness at center)
-            100,  # Max value (-50 to +50 range)
+            100,  # Max value
             self._on_brightness_change,
+        )
+        
+        # Create contrast trackbar (0-100 maps to 0.5 to 2.0)
+        cv2.createTrackbar(
+            "Contrast",
+            self._window_name,
+            33,  # Initial value (1.0 contrast, 33/33 = 1.0 in 0.5-2.0 range)
+            100,  # Max value (100 -> 2.0 contrast)
+            self._on_contrast_change,
         )
     
     @property
@@ -181,8 +190,8 @@ class CheeseGUI:
     
     def _draw_dpg(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using DearPyGui."""
-        # Apply brightness adjustment
-        frame = self.apply_brightness(frame)
+        # Apply brightness/contrast adjustments
+        frame = self.apply_adjustments(frame)
         
         # Get original dimensions
         src_h, src_w = frame.shape[:2]
@@ -213,8 +222,8 @@ class CheeseGUI:
     
     def _draw_cv2(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using OpenCV."""
-        # Apply brightness adjustment
-        frame = self.apply_brightness(frame)
+        # Apply brightness/contrast adjustments
+        frame = self.apply_adjustments(frame)
         
         # Get original dimensions
         src_h, src_w = frame.shape[:2]
@@ -404,8 +413,18 @@ class CheeseGUI:
         # Convert 0-100 to -50 to +50
         self.cfg.brightness = float(value - 50)
     
-    def apply_brightness(self, frame: np.ndarray) -> np.ndarray:
-        """Apply brightness adjustment to frame.
+    def _on_contrast_change(self, value: int) -> None:
+        """Handle contrast trackbar change.
+        
+        Trackbar value: 0-100, where 33 is center (1.0 contrast)
+        Convert to 0.5 to 2.0 range for contrast adjustment.
+        """
+        # Map 0-100 to 0.5-2.0 (0->0.5, 100->2.0, linear interpolation)
+        # Formula: 0.5 + (value / 100) * 1.5
+        self.cfg.contrast = 0.5 + (value / 100.0) * 1.5
+    
+    def apply_adjustments(self, frame: np.ndarray) -> np.ndarray:
+        """Apply brightness and contrast adjustments to frame.
         
         Args:
             frame: Input BGR frame
@@ -413,12 +432,16 @@ class CheeseGUI:
         Returns:
             Adjusted frame
         """
-        if self.cfg.brightness == 0:
+        if self.cfg.brightness == 0 and self.cfg.contrast == 1.0:
             return frame
         
-        # Use convertScaleAbs for brightness adjustment
-        # alpha = 1.0 (contrast), beta = brightness
-        adjusted = cv2.convertScaleAbs(frame, alpha=1.0, beta=self.cfg.brightness)
+        # Use convertScaleAbs for adjustments
+        # alpha = contrast, beta = brightness
+        adjusted = cv2.convertScaleAbs(
+            frame, 
+            alpha=self.cfg.contrast, 
+            beta=self.cfg.brightness
+        )
         return adjusted
     
     def close(self) -> None:
