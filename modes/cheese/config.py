@@ -18,7 +18,7 @@ class CheeseConfig(ModeConfig):
     command_timeout_s: float = 12.0
     
     # Face tracking
-    min_detection_confidence: float = 0.70
+    min_detection_confidence: float = 0.50
     smooth_factor: float = 0.20
     
     # Alignment thresholds

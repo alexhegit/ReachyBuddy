@@ -35,9 +35,10 @@ class RCState(str, Enum):
 class FaceAligner:
     """Face tracking and alignment controller."""
     
-    def __init__(self, config: CheeseConfig):
+    def __init__(self, config: CheeseConfig, debug: bool = False):
         from vision.face_tracker import FaceTracker
         
+        self._debug = debug
         self._tracker = FaceTracker(
             smooth_factor=config.smooth_factor,
             multi_face_strategy="largest",
@@ -69,6 +70,12 @@ class FaceAligner:
     def update(self, runtime, frame, soft: bool = False) -> dict:
         """Update face tracking."""
         bbox = self._tracker.detect(frame)
+        
+        # Debug: log first detection
+        if bbox is not None and self._debug and not hasattr(self, '_first_detect_logged'):
+            print(f"   👤 Face first detected: bbox={bbox}")
+            self._first_detect_logged = True
+        
         if bbox is None:
             self._stable_frames = 0
             self._locked = False
@@ -273,7 +280,7 @@ class CheeseModeApp(BaseModeApp):
         self.cfg.save_dir.mkdir(parents=True, exist_ok=True)
         
         # Initialize components
-        self.aligner = FaceAligner(self.cfg)
+        self.aligner = FaceAligner(self.cfg, debug=self.cfg.debug)
         self.voice = VoiceIO(self.cfg)
         self.gui = CheeseGUI(self.cfg)
         

@@ -153,11 +153,18 @@ class CheeseGUI:
     
     def _draw_dpg(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using DearPyGui."""
+        # Get original dimensions
+        src_h, src_w = frame.shape[:2]
+        
         # Resize and convert
         frame_resized = cv2.resize(frame, (self.cfg.preview_width, self.cfg.preview_height))
         
-        # Draw overlays
-        self._draw_overlays(frame_resized, state, status)
+        # Calculate scale factors
+        scale_x = self.cfg.preview_width / float(src_w)
+        scale_y = self.cfg.preview_height / float(src_h)
+        
+        # Draw overlays with scaling
+        self._draw_overlays(frame_resized, state, status, scale_x, scale_y)
         
         # Update texture
         rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
@@ -175,12 +182,18 @@ class CheeseGUI:
     
     def _draw_cv2(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using OpenCV."""
+        # Get original dimensions
+        src_h, src_w = frame.shape[:2]
+        
         # Resize frame
-        h, w = frame.shape[:2]
         frame_resized = cv2.resize(frame, (self.cfg.preview_width, self.cfg.preview_height))
         
-        # Draw overlays
-        self._draw_overlays(frame_resized, state, status)
+        # Calculate scale factors
+        scale_x = self.cfg.preview_width / float(src_w)
+        scale_y = self.cfg.preview_height / float(src_h)
+        
+        # Draw overlays with scaling
+        self._draw_overlays(frame_resized, state, status, scale_x, scale_y)
         
         # Create canvas with button panel
         panel_h = self._button_height + 60
@@ -251,8 +264,23 @@ class CheeseGUI:
         
         cv2.imshow(self._window_name, canvas)
     
-    def _draw_overlays(self, frame: np.ndarray, state, status: Optional[dict]) -> None:
-        """Draw overlays on frame."""
+    def _draw_overlays(
+        self,
+        frame: np.ndarray,
+        state,
+        status: Optional[dict],
+        scale_x: float = 1.0,
+        scale_y: float = 1.0,
+    ) -> None:
+        """Draw overlays on frame.
+        
+        Args:
+            frame: Frame to draw on (may be resized)
+            state: Current state
+            status: Face tracking status
+            scale_x: X scale factor from original to current frame
+            scale_y: Y scale factor from original to current frame
+        """
         h, w = frame.shape[:2]
         
         # Draw center crosshair
@@ -265,11 +293,15 @@ class CheeseGUI:
             thickness=2,
         )
         
-        # Draw face box
+        # Draw face box (with scaling)
         if status and status.get("bbox"):
             x, y, bw, bh = status["bbox"]
-            # Scale bbox if frame was resized
-            cv2.rectangle(frame, (x, y), (x + bw, y + bh), (50, 230, 50), 2)
+            # Scale bbox coordinates to match resized frame
+            px = int(x * scale_x)
+            py = int(y * scale_y)
+            pw = int(bw * scale_x)
+            ph = int(bh * scale_y)
+            cv2.rectangle(frame, (px, py), (px + pw, py + ph), (50, 230, 50), 2)
         
         # Draw state indicator
         state_colors = {
