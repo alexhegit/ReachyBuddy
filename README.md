@@ -1,133 +1,242 @@
-# Reachy Mini — Ollama Chat + Emotion/Dance Demo
+# ReachyCheese 🧀🤖
 
+**ReachyCheese** — 全离线语音交互拍照应用，专为 Reachy Mini 桌面机器人设计。
 
-"Don't have physical hardware? You can still create your own virtual robot on your desk. This represents a straightforward sim-to-real practice leveraging MuJoCo and AI tools like Faster Whisper, Ollama, and eSpeak/Edge-TTS. While Edge-TTS relies on cloud APIs, eSpeak enables fully offline operation. I developed this on the AMD Strix Halo platform and tested it on an AMD Radeon GPU with Ubuntu. Although untested on other systems, the architecture should facilitate easy porting to macOS and Windows."
-
+通过语音唤醒、人脸追踪、自动对齐，让你轻松拍出完美的机器人视角照片。
 
 ![Demo](./assets/ReachyMiniChat.png)
 
-## Short summary
-- This repository contains demo apps and controllers for the Reachy Mini simulator and small robot, focused on emotion-driven and dance actions triggered from language model outputs (Ollama). It includes several experimental versions (`emo_v1` → `emo_v8`) that explore recorded-move playback, streaming-triggered motions, and TTS integration.
+---
 
-What you'll find
-- `emo_v1.py` — Baseline high-intensity emotion controller and examples.
-- `emo_v2.py` — RecordedMoves categorization and selection.
-- `emo_v3.py` — Streaming LM responses triggering actions early.
-- `emo_v4.py` — Offline-focused TTS (eSpeak) with lip-sync hooks.
-- `emo_v5.py` — Edge-TTS integration with WAV save/read/play flow (multi-language support).
-- `emo_v6.py` — Continuous synchronized actions with cartoon voices and multi-modal expressions.
-- `emo_v7.py` — ASR → LLM → TTS demo (see EMO_V7_README.md)
-- `emo_v8.py` — Offline Piper-TTS version (ASR/text chat + Ollama + Piper)
+## ✨ 功能特点
 
-## Installation prerequisites (Linux / Debian-family)
+- **🎙️ 语音唤醒**：说 "Reachy" 唤醒机器人
+- **👤 人脸追踪**：自动追踪最大人脸并对齐到画面中心
+- **📸 语音拍照**：说 "cheese"、"take photo" 或 "take picture" 拍照
+- **⏱️ 智能倒计时**：语音提示 "One, two, three, cheese!" 后自动拍摄
+- **🖼️ 实时预览**：GUI 界面显示摄像头画面、人脸框、状态信息
+- **💾 自动保存**：照片保存到 `~/Pictures/ReachyMiniPhoto/`
+- **🔌 全离线运行**：无需网络，保护隐私
 
-This project is developed on an AMD Ryzen™ AI Max+ 395 running Ubuntu 24.04. I recommend this hardware for deploying the application, as it serves as an excellent companion to the Reachy Mini Desktop Robot. The integrated GPU and CPU provide the necessary performance to run the full pipeline 100% offline.
+---
 
-So you may follow the [AMD ROCm Documentation](
-https://rocm.docs.amd.com/projects/radeon-ryzen/en/latest/docs/install/installryz/native_linux/install-ryzen.html) to install Ryzen Software for Linux with ROCm.
+## 🔄 工作流程
 
-Then go to setup the environment for this application.
+```
+[Sleep 待机] --"Reachy"--> [Tracking 追踪] --对齐完成--> [Armed 待命] --"cheese"--> [Countdown 倒计时] --> [Capture 拍摄]
+```
 
-1. System packages
+1. **Sleep**：待机监听唤醒词
+2. **Tracking**：追踪并对齐最大人脸
+3. **Armed**：人脸已对齐，等待拍照指令
+4. **Countdown**：语音提示倒计时
+5. **Capture**：拍照并保存
+
+---
+
+## 📋 系统要求
+
+- **操作系统**：Ubuntu 22.04+ / Linux
+- **硬件**：AMD Ryzen AI 或 x86_64 平台
+- **机器人**：Pollen Robotics Reachy Mini（或仅摄像头模式测试）
+- **摄像头**：内置 USB 摄像头或笔记本摄像头
+
+---
+
+## 🛠️ 安装
+
+### 1. 系统依赖
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip espeak ffmpeg libsndfile1 portaudio19-dev
+sudo apt install -y python3 python3-venv python3-pip ffmpeg libsndfile1 portaudio19-dev espeak
 ```
 
-**Notes:**
-- `espeak` (eSpeak) is required for the offline TTS flow used by `emo_v4.py`.
-- `libsndfile1` and `portaudio` are required for `soundfile` and `sounddevice` (used when playing WAVs).
-- `ffmpeg` is optional but useful if you need to convert audio formats or debug audio files.
-
-2. Python environment
+### 2. 创建虚拟环境
 
 ```bash
+cd /path/to/ReachyBuddy
 python3 -m venv venv
 source venv/bin/activate
 pip install --upgrade pip
+```
+
+### 3. 安装 Python 依赖
+
+```bash
 pip install -r requirements.txt
 ```
 
-3. Ollama / Reachy Mini SDK
-
-This repo uses Ollama and Reachy Mini SDK for LLM and action responses in demos. Please follow those tools' own install instructions.
-
-- Install reachy-mini SDK with Mujoco support:
+### 4. 安装 Reachy Mini SDK（如使用真实机器人）
 
 ```bash
 pip install "reachy-mini[mujoco]"
 ```
 
-- Install Ollama from https://ollama.com/download. Then install it and pull Qwen3:0.6B which is the LLM we used in this repo.
+### 5. 下载语音模型
 
-## Run it
+默认使用 Piper-TTS 的 Ryan 语音模型，已包含在 `models/` 目录：
 
-1. Start the Reachy Mini simulation in terminal 1:
+- `models/en-us-ryan-medium.onnx` - 英文男声（推荐）
+- `models/zh_CN-huayan-medium.onnx` - 中文女声
+
+如需其他语音，从 [Piper Voices](https://huggingface.co/rhasspy/piper-voices) 下载。
+
+---
+
+## 🚀 使用方法
+
+### 启动 Reachy Mini 模拟器（可选）
 
 ```bash
 reachy-mini-daemon --sim
 ```
 
-Use `export PYGLFW_LIBRARY_VARIANT=x11` if the GUI launch fails on Wayland, which is the default backend of Ubuntu 24.04+.
+### 运行 ReachyCheese
 
-2. Quick test commands (terminal 2)
-
-```bash
-# Run the action tests (plays recorded moves + emotions)
-python ./utils/test_actions.py
-
-# Test TTS in emo_v5 (Edge-TTS path) — the script includes a --test-tts flag in emo_v5
-python emo_v5.py --test-tts
-
-# Test eSpeak offline TTS in emo_v4
-python emo_v4.py --test-tts
-```
-
-## Project notes and troubleshooting
-- If you hear noisy or distorted audio, ensure `soundfile` and `sounddevice` are installed in the active venv, and that the system `libsndfile` and PortAudio development packages are present.
-- `emo_v5.py` writes Edge-TTS output to WAV and plays it back using the file's sample rate to avoid playback artifacts.
-- `emo_v4.py` uses `espeak --stdout` as the primary offline TTS backend; ensure eSpeak is installed.
-
-## emo_v7 (ASR → LLM → TTS)
-- `emo_v7.py` adds a microphone-first pipeline using `faster-whisper` (CPU) for ASR, then forwards the transcription to Ollama and uses the existing emotion controller + Edge-TTS for speech and actions.
-- See [EMO_V7_README.md](EMO_V7_README.md) for usage, requirements, and notes about model choices and VAD improvements.
-- New CLI flag: `--gentle` — enables gentle_mode which restricts selected recorded moves to a curated gentle set and adjusts motion durations for subtler actions. Example:
+#### 使用 Reachy Mini 机器人
 
 ```bash
-python emo_v7.py --asr --gentle
+python ReachyCheese.py --camera-source reachy
 ```
 
-## emo_v8 (Offline Piper-TTS)
-- `emo_v8.py` replaces Edge-TTS with Piper-TTS for fully offline speech synthesis, while keeping Ollama chat and emotion/action flow.
-- New dependency is already included in `requirements.txt`:
-  - `piper-tts>=1.4.0`
-- `emo_v8.py` also supports `--gentle` (same behavior as emo_v7/emo_v6) and accepts `--piper-model` and `--piper-config` to point to local voice models. Example:
+#### 使用本地摄像头测试
 
 ```bash
-python emo_v8.py --model qwen3:0.6b --piper-model models/zh_CN-huayan-medium.onnx --gentle
+python ReachyCheese.py --camera-source webcam --camera-index 0
 ```
 
-Piper voice model download
-- Download `.onnx` and matching `.onnx.json` voice files from:
-  - Piper release page: `https://github.com/rhasspy/piper/releases/tag/v0.0.2`
-  - Voice files repo: `https://huggingface.co/rhasspy/piper-voices`
-- Place files under `models/` (or any path you pass to `--piper-model`).
+#### 指定语音模型
 
-Usage examples
 ```bash
-# Text chat mode + english (default)
-python emo_v8.py --model qwen3.5:0.8b --piper-model models/en-us-blizzard_lessac-medium.onnx
-
-# ASR mode + Chinese 
-python emo_v8.py --asr --model qwen3.5:0.8b --piper-model models/zh_CN-huayan-medium.onnx --gentle
-
-# ASR + gentle action + Chinese
-python emo_v8.py --piper-model ./models/zh_CN-huayan-medium.onnx --gentle --model qwen3.5:0.8b
-
-# Optional: explicit Piper config/speaker
-python emo_v8.py --piper-model models/en-us-blizzard_lessac-medium.onnx --piper-config models/en-us-blizzard_lessac-medium.onnx.json --speaker 0
+python ReachyCheese.py --piper-model models/zh_CN-huayan-medium.onnx
 ```
 
-## Version History
-- See [EMO_README.md](EMO_README.md) for version details and changelog across `emo_v*` versions.
+---
+
+## 🎮 语音指令
+
+| 指令 | 说明 |
+|------|------|
+| "Reachy" / "Ricky" | 唤醒机器人 |
+| "cheese" / "cheeze" | 拍照 |
+| "take photo" / "take picture" | 拍照 |
+| "photo" / "picture" | 拍照 |
+
+---
+
+## 🖥️ GUI 界面
+
+支持两种 GUI 后端：
+
+1. **Dear PyGui**（默认，功能更丰富）
+2. **OpenCV**（fallback，无需额外依赖）
+
+界面元素：
+- 实时摄像头预览
+- 人脸检测框（绿色）
+- 画面中心准星
+- 当前状态显示
+- 倒计时提示
+- 手动控制按钮（Wake / Take Photo / Cancel / Sleep）
+
+---
+
+## ⚙️ 命令行参数
+
+```
+python ReachyCheese.py [OPTIONS]
+
+Options:
+  --preview-width INT       预览窗口宽度 (默认: 640)
+  --preview-height INT      预览窗口高度 (默认: 480)
+  --preview-fps FLOAT       预览帧率 (默认: 20.0)
+  --save-dir PATH           照片保存目录 (默认: ~/Pictures/ReachyMiniPhoto)
+  --wake-word TEXT          唤醒词 (默认: reachy)
+  --asr-model {tiny,base,small,medium,large}  ASR模型 (默认: base)
+  --vad-silence FLOAT       VAD静音阈值秒数 (默认: 0.7)
+  --vad-aggressive {0,1,2,3} VAD灵敏度 (默认: 1)
+  --piper-model PATH        Piper TTS模型路径
+  --piper-config PATH       Piper TTS配置文件路径
+  --speaker INT             说话人ID (默认: 0)
+  --camera-source {reachy,webcam} 摄像头源 (默认: reachy)
+  --camera-index INT        摄像头索引 (默认: 0)
+  --debug                   启用调试输出
+```
+
+---
+
+## 📁 项目结构
+
+```
+ReachyBuddy/
+├── ReachyCheese.py          # 主程序
+├── ReachyCheese_spec.md     # 设计规格文档
+├── requirements.txt         # Python 依赖
+├── models/                  # TTS 语音模型
+│   ├── en-us-ryan-medium.onnx
+│   └── ...
+├── utils/
+│   └── asr.py              # ASR 语音识别模块
+├── vision/
+│   └── face_tracker.py     # 人脸追踪模块
+└── assets/                  # 图片资源
+```
+
+---
+
+## 🔧 技术栈
+
+| 组件 | 技术 |
+|------|------|
+| **ASR** | faster-whisper (CPU) |
+| **VAD** | webrtcvad |
+| **TTS** | Piper-TTS (ONNX) |
+| **人脸检测** | MediaPipe Face Detection |
+| **GUI** | Dear PyGui / OpenCV |
+| **机器人控制** | reachy-mini SDK |
+
+---
+
+## 🐛 故障排除
+
+### 摄像头无法打开
+
+```bash
+# 检查可用摄像头
+ls /dev/video*
+
+# 测试摄像头
+python -c "import cv2; cap = cv2.VideoCapture(0); print(cap.isOpened())"
+```
+
+### 语音无法识别
+
+- 检查麦克风是否被占用
+- 尝试调整 `--vad-silence` 参数（0.5-1.5 之间）
+- 使用 `--debug` 查看详细日志
+
+### TTS 无声音
+
+```bash
+# 检查音频输出
+speaker-test -t wav
+
+# 检查 sounddevice
+python -c "import sounddevice as sd; print(sd.query_devices())"
+```
+
+---
+
+## 📄 许可证
+
+MIT License - 详见 [LICENSE](./LICENSE)
+
+---
+
+## 🙏 致谢
+
+- [Pollen Robotics](https://www.pollen-robotics.com/) - Reachy Mini 机器人
+- [Piper TTS](https://github.com/rhasspy/piper) - 离线语音合成
+- [faster-whisper](https://github.com/SYSTRAN/faster-whisper) - 语音识别
+- [MediaPipe](https://mediapipe.dev/) - 人脸检测

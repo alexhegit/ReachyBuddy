@@ -1,37 +1,27 @@
-# Requirements for Reachy Mini Chat App
+# ReachyCheese - 离线语音拍照应用依赖
 
-# Core dependencies
-requests>=2.31.0
+# Core
 numpy>=1.24.0
-scipy>=1.10.0
-
-# For development/testing
-# pytest>=7.4.0
-# black>=23.0.0
-
-# TTS + audio playback dependencies
-# Edge TTS client (async wrapper for Microsoft Edge TTS voices)
-edge-tts>=1.2.0
-# Read/write audio files
-soundfile>=0.12.1
-# Playback using PortAudio (may require system PortAudio installed)
-sounddevice>=0.4.8
-
-# Async HTTP for non-blocking LLM requests
-aiohttp>=3.9.0
-
-# ASR 
-faster-whisper>=1.2.1
-# Voice Activity Detection for ASR (dynamic recording stop)
-webrtcvad-wheels>=2.0.14
-
-# Piper TTS (Offline)
-piper-tts>=1.4.0
-
-# Vision capabilities (optional)
-# Required for face tracking, gesture recognition, etc.
-mediapipe>=0.10.0
 opencv-python>=4.8.0
 
-# ReachyCheese GUI (optional; app falls back to OpenCV GUI when unavailable)
-# dearpygui>=1.11.1
+# Audio
+soundfile>=0.12.1
+sounddevice>=0.4.8
+
+# ASR (faster-whisper)
+faster-whisper>=1.2.1
+
+# VAD (Voice Activity Detection)
+webrtcvad-wheels>=2.0.14
+
+# TTS (Piper - Offline)
+piper-tts>=1.4.0
+
+# Vision (MediaPipe face detection)
+mediapipe>=0.10.0
+
+# Optional GUI (falls back to OpenCV if unavailable)
+dearpygui>=1.11.1
+
+# Reachy Mini SDK (install separately)
+# pip install "reachy-mini[mujoco]"
