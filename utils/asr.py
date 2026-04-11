@@ -81,14 +81,22 @@ class FasterWhisperASREngine:
         channels = 1
         print(f"🎙️ Recording {duration:.1f}s @ {samplerate}Hz...")
         
+        tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        
         if show_volume:
             # Record with volume visualization
             frames = []
             chunk_duration = 0.05  # 50ms chunks for smooth visualization
             chunk_samples = int(samplerate * chunk_duration)
             total_chunks = int(duration / chunk_duration)
+            stream = None
             
-            with sd.InputStream(samplerate=samplerate, channels=channels, dtype='int16') as stream:
+            try:
+                stream = sd.InputStream(samplerate=samplerate, channels=channels, dtype='int16')
+                stream.start()
+                
                 for _ in range(total_chunks):
                     data, _ = stream.read(chunk_samples)
                     frames.append(data)
@@ -97,19 +105,32 @@ class FasterWhisperASREngine:
                     rms = self._calculate_rms(data)
                     bar = self._draw_volume_bar(rms)
                     print(f"\r{bar}", end='', flush=True)
-            
-            print()  # New line after volume bar
-            data = np.concatenate(frames, axis=0)
+                
+                print()  # New line after volume bar
+                data = np.concatenate(frames, axis=0)
+                sf.write(tmp_path, data, samplerate=samplerate)
+            finally:
+                if stream is not None:
+                    try:
+                        stream.stop()
+                        stream.close()
+                    except Exception:
+                        pass
         else:
             # Simple recording without visualization
-            data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=channels, dtype='int16')
-            sd.wait()
+            try:
+                data = sd.rec(int(duration * samplerate), samplerate=samplerate, channels=channels, dtype='int16')
+                sd.wait()
+                sf.write(tmp_path, data, samplerate=samplerate)
+            except Exception:
+                # Ensure any partial recording is cleaned up
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except:
+                    pass
+                raise
 
-        tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-        tmp_path = tmp.name
-        tmp.close()
-
-        sf.write(tmp_path, data, samplerate=samplerate)
         return tmp_path
 
     @staticmethod
@@ -185,8 +206,12 @@ class FasterWhisperASREngine:
         silent_frames = 0
         required_silent_frames = int(silence_threshold * 1000 / frame_duration_ms)
         speech_detected = False
+        stream = None
         
-        with sd.InputStream(samplerate=samplerate, channels=channels, dtype='int16') as stream:
+        try:
+            stream = sd.InputStream(samplerate=samplerate, channels=channels, dtype='int16')
+            stream.start()
+            
             while (time.time() - start_time) < max_duration:
                 data, _ = stream.read(frame_samples)
                 if data is None:
@@ -223,6 +248,14 @@ class FasterWhisperASREngine:
                         print()  # New line after volume bar
                     print(f"🔇 Detected {silence_threshold}s of silence after speech - stopping")
                     break
+        finally:
+            # Ensure stream is properly stopped and closed
+            if stream is not None:
+                try:
+                    stream.stop()
+                    stream.close()
+                except Exception:
+                    pass
         
         if not frames:
             raise RuntimeError("No audio captured")
@@ -255,6 +288,14 @@ class FasterWhisperASREngine:
                     os.remove(wav_path)
                 except Exception:
                     pass
+
+    def close(self) -> None:
+        """Cleanup audio resources."""
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
 
     def transcribe_from_mic_vad(self, max_duration: float = 5.0, samplerate: int = 16000, 
                                  silence_threshold: float = 2.0, aggressiveness: int = 1,

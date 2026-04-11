@@ -12,10 +12,13 @@ Flow:
 from __future__ import annotations
 
 import argparse
+import atexit
 import difflib
 import os
 import queue
 import re
+import signal
+import sys
 import threading
 import time
 from dataclasses import dataclass
@@ -205,8 +208,20 @@ class VoiceIO:
 
     def close(self) -> None:
         self._speak_running = False
-        self._speak_queue.put("")
-        self._speak_thread.join(timeout=1.5)
+        self._speak_queue.put("")  # Unblock the queue
+        self._speak_thread.join(timeout=2.0)
+        # Cleanup ASR resources
+        if self._asr:
+            try:
+                self._asr.close()
+            except Exception:
+                pass
+        # Force stop any active sounddevice streams
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
 
     def _speak_loop(self) -> None:
         while self._speak_running:
@@ -752,9 +767,26 @@ class ReachyCheeseApp:
             self._countdown_overlay = ""
             self._capture()
 
+    def _cleanup(self) -> None:
+        """Cleanup resources on exit."""
+        print("\n🧹 Cleaning up...")
+        self._stop_listener()
+        self.voice.close()
+        self.gui.close()
+        # Ensure sounddevice is fully stopped
+        try:
+            import sounddevice as sd
+            sd.stop()
+        except Exception:
+            pass
+        print("👋 Goodbye!")
+
     def run(self) -> None:
         if not self.gui.available:
             raise RuntimeError("GUI initialization failed.")
+
+        # Register cleanup for normal exit
+        atexit.register(self._cleanup)
 
         self.cfg.save_dir.mkdir(parents=True, exist_ok=True)
         self._start_listener()
@@ -767,6 +799,7 @@ class ReachyCheeseApp:
         print("🤖 ReachyCheese started")
         print(f"🎥 Camera source: {self.cfg.camera_source}")
         print(f"📁 Save dir: {self.cfg.save_dir}")
+        print("Press 'q' or ESC in GUI window to exit\n")
 
         try:
             try:
@@ -784,10 +817,12 @@ class ReachyCheeseApp:
                 runtime.set_automatic_body_yaw(False)
                 runtime.reset_head(duration=0.5)
                 frame_interval = 1.0 / max(self.cfg.preview_fps, 1.0)
+                _running = True
 
-                while self.gui.is_running():
+                while _running and self.gui.is_running():
                     tick = time.time()
                     if self._drain_ui_events():
+                        _running = False
                         break
                     self._drain_asr()
 
@@ -839,10 +874,11 @@ class ReachyCheeseApp:
                         time.sleep(frame_interval - elapsed)
             finally:
                 runtime.__exit__(None, None, None)
+        except KeyboardInterrupt:
+            print("\n⚠️ Interrupted by user")
         finally:
-            self._stop_listener()
-            self.voice.close()
-            self.gui.close()
+            atexit.unregister(self._cleanup)
+            self._cleanup()
 
 
 def parse_args() -> RCConfig:
