@@ -228,6 +228,10 @@ def build_config(args) -> tuple:
     # Determine mode
     if args.cheese:
         mode = "cheese"
+        # Use enhanced image adjustments for Reachy camera to compensate
+        # for lack of hardware ISP processing (auto-exposure, sharpening, etc.)
+        # Webcam has built-in ISP, Reachy returns more raw sensor data
+        is_reachy = args.camera_source == "reachy"
         config = CheeseConfig(
             camera_source=args.camera_source,
             camera_index=args.camera_index,
@@ -245,6 +249,10 @@ def build_config(args) -> tuple:
             save_dir=args.save_dir,
             wake_word=args.wake_word,
             command_timeout_s=args.timeout,
+            # Enhanced defaults for Reachy to match Webcam quality
+            brightness=15.0 if is_reachy else 0.0,    # +15 brightness for Reachy
+            contrast=1.3 if is_reachy else 1.0,       # +30% contrast for Reachy
+            saturation=1.4 if is_reachy else 1.0,     # +40% saturation for Reachy
         )
     elif args.guard:
         mode = "guard"
