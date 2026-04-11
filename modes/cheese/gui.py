@@ -103,43 +103,9 @@ class CheeseGUI:
         cv2.resizeWindow(
             self._window_name,
             self.cfg.preview_width,
-            self.cfg.preview_height + self._button_height + 120,  # Extra space for trackbars
+            self.cfg.preview_height + self._button_height + 60,
         )
         cv2.setMouseCallback(self._window_name, self._on_mouse)
-        
-        # Create brightness trackbar (0-100 maps to -50 to +50)
-        # Initial value from config (e.g., Reachy uses +15, Webcam uses 0)
-        brightness_initial = int(self.cfg.brightness) + 50
-        cv2.createTrackbar(
-            "Brightness",
-            self._window_name,
-            brightness_initial,
-            100,  # Max value
-            self._on_brightness_change,
-        )
-        
-        # Create contrast trackbar (0-100 maps to 0.5 to 2.0)
-        # Initial value from config (e.g., Reachy uses 1.3, Webcam uses 1.0)
-        # Formula: (contrast - 0.5) / 1.5 * 100
-        contrast_initial = int((self.cfg.contrast - 0.5) / 1.5 * 100)
-        cv2.createTrackbar(
-            "Contrast",
-            self._window_name,
-            contrast_initial,
-            100,  # Max value (100 -> 2.0 contrast)
-            self._on_contrast_change,
-        )
-        
-        # Create saturation trackbar (0-100 maps to 0.0 to 2.0)
-        # Initial value from config (e.g., Reachy uses 1.4, Webcam uses 1.0)
-        saturation_initial = int(self.cfg.saturation * 50)
-        cv2.createTrackbar(
-            "Saturation",
-            self._window_name,
-            saturation_initial,
-            100,  # Max value (100 -> 2.0 saturation)
-            self._on_saturation_change,
-        )
     
     @property
     def available(self) -> bool:
@@ -206,9 +172,6 @@ class CheeseGUI:
     
     def _draw_dpg(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using DearPyGui."""
-        # Apply brightness/contrast adjustments
-        frame = self.apply_adjustments(frame)
-        
         # Get original dimensions
         src_h, src_w = frame.shape[:2]
         
@@ -238,9 +201,6 @@ class CheeseGUI:
     
     def _draw_cv2(self, frame: np.ndarray, state, status: Optional[dict], last_saved: str) -> None:
         """Draw using OpenCV."""
-        # Apply brightness/contrast adjustments
-        frame = self.apply_adjustments(frame)
-        
         # Get original dimensions
         src_h, src_w = frame.shape[:2]
         
@@ -261,18 +221,6 @@ class CheeseGUI:
             dtype=np.uint8,
         )
         canvas[:self.cfg.preview_height, :, :] = frame_resized
-        
-        # Draw adjustment values overlay
-        adj_text = f"B:{self.cfg.brightness:+.0f} C:{self.cfg.contrast:.1f} S:{self.cfg.saturation:.1f}"
-        cv2.putText(
-            canvas,
-            adj_text,
-            (10, 20),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            (255, 255, 255),
-            1,
-        )
         
         # Draw status text
         cv2.putText(
@@ -431,62 +379,6 @@ class CheeseGUI:
             if bx <= x <= bx + btn_w and by <= y <= by + self._button_height:
                 self._event_queue.put(action)
                 return
-    
-    def _on_brightness_change(self, value: int) -> None:
-        """Handle brightness trackbar change.
-        
-        Trackbar value: 0-100, where 50 is center (no change)
-        Convert to -50 to +50 range for brightness adjustment.
-        """
-        # Convert 0-100 to -50 to +50
-        self.cfg.brightness = float(value - 50)
-    
-    def _on_contrast_change(self, value: int) -> None:
-        """Handle contrast trackbar change.
-        
-        Trackbar value: 0-100, where 33 is center (1.0 contrast)
-        Convert to 0.5 to 2.0 range for contrast adjustment.
-        """
-        # Map 0-100 to 0.5-2.0 (0->0.5, 100->2.0, linear interpolation)
-        # Formula: 0.5 + (value / 100) * 1.5
-        self.cfg.contrast = 0.5 + (value / 100.0) * 1.5
-    
-    def _on_saturation_change(self, value: int) -> None:
-        """Handle saturation trackbar change.
-        
-        Trackbar value: 0-100, where 50 is center (1.0 saturation)
-        Convert to 0.0 to 2.0 range for saturation adjustment.
-        """
-        # Map 0-100 to 0.0-2.0
-        self.cfg.saturation = value / 50.0
-    
-    def apply_adjustments(self, frame: np.ndarray) -> np.ndarray:
-        """Apply brightness, contrast, and saturation adjustments to frame.
-        
-        Args:
-            frame: Input BGR frame
-            
-        Returns:
-            Adjusted frame
-        """
-        adjusted = frame
-        
-        # Apply brightness and contrast
-        if self.cfg.brightness != 0 or self.cfg.contrast != 1.0:
-            adjusted = cv2.convertScaleAbs(
-                adjusted, 
-                alpha=self.cfg.contrast, 
-                beta=self.cfg.brightness
-            )
-        
-        # Apply saturation adjustment
-        if self.cfg.saturation != 1.0:
-            # Convert to HSV, adjust S channel, convert back
-            hsv = cv2.cvtColor(adjusted, cv2.COLOR_BGR2HSV).astype(np.float32)
-            hsv[:, :, 1] = np.clip(hsv[:, :, 1] * self.cfg.saturation, 0, 255)
-            adjusted = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-        
-        return adjusted
     
     def close(self) -> None:
         """Cleanup GUI resources."""

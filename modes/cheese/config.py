@@ -26,19 +26,6 @@ class CheeseConfig(ModeConfig):
     deadzone_y: int = 20
     stable_needed: int = 10
     
-    # Software image adjustment (applied after frame capture)
-    # Note: Hardware-level camera control is preferred. Software adjustments
-    # are provided as a fallback but may reduce image quality.
-    brightness: float = 0.0   # -50 to +50, 0 is no change
-    contrast: float = 1.0     # 0.5 to 2.0, 1.0 is no change  
-    saturation: float = 1.0   # 0.0 to 2.0, 1.0 is no change
-    
-    # Hardware camera parameters (Reachy Mini only, if supported by SDK)
-    # These would need to be set through reachy_mini SDK camera controls
-    auto_exposure: bool = True
-    exposure: int = -1  # -1 for auto, or specific value
-    gain: int = -1      # -1 for auto, or specific value
-    
     def __post_init__(self):
         """Ensure save_dir is a Path object."""
         if isinstance(self.save_dir, str):
