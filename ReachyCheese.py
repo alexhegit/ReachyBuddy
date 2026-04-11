@@ -946,10 +946,6 @@ def main() -> None:
     except Exception as e:
         print(f"\n❌ Error: {e}")
         raise
-    finally:
-        # Force clean exit to avoid segfault from background threads
-        # during Python module teardown
-        sys.exit(0)
 
 
 if __name__ == "__main__":
