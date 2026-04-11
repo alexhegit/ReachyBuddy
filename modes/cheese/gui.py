@@ -119,10 +119,20 @@ class CheeseGUI:
             return dpg.is_dearpygui_running()
         if self._backend == "none":
             return True  # Headless mode always runs
-        # OpenCV
+        # OpenCV - check if window exists and is visible
         try:
+            # WND_PROP_VISIBLE returns -1 if window is closed
             visible = cv2.getWindowProperty(self._window_name, cv2.WND_PROP_VISIBLE)
-            return visible >= 1
+            if visible < 1:
+                return False
+            # Also check WND_PROP_AUTOSIZE as additional verification
+            autosize = cv2.getWindowProperty(self._window_name, cv2.WND_PROP_AUTOSIZE)
+            if autosize < 0:
+                return False
+            return True
+        except cv2.error:
+            # Window was closed
+            return False
         except Exception:
             return False
     
@@ -135,10 +145,19 @@ class CheeseGUI:
             except queue.Empty:
                 break
         
-        # Check OpenCV key presses
+        # Check OpenCV key presses and window state
         if self._backend == "cv2":
             key = cv2.waitKey(1) & 0xFF
             if key in (ord("q"), 27):  # q or ESC
+                events.append("quit")
+            
+            # Check if window was closed (click X button)
+            try:
+                visible = cv2.getWindowProperty(self._window_name, cv2.WND_PROP_VISIBLE)
+                if visible < 1:
+                    events.append("quit")
+            except cv2.error:
+                # Window was closed
                 events.append("quit")
         
         return events
