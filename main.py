@@ -249,10 +249,11 @@ def build_config(args) -> tuple:
             save_dir=args.save_dir,
             wake_word=args.wake_word,
             command_timeout_s=args.timeout,
-            # Enhanced defaults for Reachy to match Webcam quality
-            brightness=15.0 if is_reachy else 0.0,    # +15 brightness for Reachy
-            contrast=1.3 if is_reachy else 1.0,       # +30% contrast for Reachy
-            saturation=1.4 if is_reachy else 1.0,     # +40% saturation for Reachy
+            # Software image adjustments (default: no adjustment)
+            # Note: Hardware-level camera control is preferred over software post-processing
+            brightness=0.0,   # -50 to +50, 0 is no change
+            contrast=1.0,     # 0.5 to 2.0, 1.0 is no change
+            saturation=1.0,   # 0.0 to 2.0, 1.0 is no change
         )
     elif args.guard:
         mode = "guard"
