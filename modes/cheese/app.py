@@ -214,16 +214,24 @@ class FaceAligner:
                     if dcmd_x < self._min_cmd_delta_px and dcmd_y < self._min_cmd_delta_px:
                         should_send = False
                 
-                if should_send and runtime:
-                    try:
-                        duration = 0.34 if (soft or in_reacquire) else 0.24
-                        runtime.look_at_image(target_x, target_y, duration=duration)
+                if should_send:
+                    if runtime is None:
                         if self._debug:
-                            print(f"   👁️  Look at ({target_x}, {target_y}) dx={self._ema_dx:+.0f} dy={self._ema_dy:+.0f}")
-                        self._last_cmd_center = (target_x, target_y)
-                    except Exception as e:
-                        if self._debug:
-                            print(f"   ⚠️ Head move error: {e}")
+                            print(f"   ⚠️ runtime is None, cannot move head")
+                    else:
+                        try:
+                            duration = 0.34 if (soft or in_reacquire) else 0.24
+                            if self._debug:
+                                print(f"   👁️  Calling look_at_image({target_x}, {target_y}, duration={duration})")
+                            runtime.look_at_image(target_x, target_y, duration=duration)
+                            if self._debug:
+                                print(f"   ✅ Head moved to ({target_x}, {target_y})")
+                            self._last_cmd_center = (target_x, target_y)
+                        except Exception as e:
+                            if self._debug:
+                                print(f"   ⚠️ Head move error: {e}")
+                                import traceback
+                                traceback.print_exc()
             
             if not need_move:
                 self._last_cmd_center = None
@@ -453,6 +461,9 @@ class CheeseModeApp(BaseModeApp):
             status = self.aligner.update(None, frame, soft=False)  # runtime=None means no control
         
         elif self.state == RCState.TRACKING:
+            if self.cfg.debug and not hasattr(self, '_tracking_logged'):
+                print(f"   🎯 TRACKING mode: runtime={self.runtime is not None}")
+                self._tracking_logged = True
             status = self.aligner.update(self.runtime, frame, soft=False)
             if status["aligned"]:
                 self.state = RCState.ARMED
@@ -492,9 +503,12 @@ class CheeseModeApp(BaseModeApp):
             # Wake word detection
             if self.state == RCState.SLEEP:
                 if self._is_wake_phrase(text):
+                    print(f"   🔔 Wake word detected! Going to TRACKING mode")
                     self.voice.speak("Hi. I am awake.")
                     self.state = RCState.TRACKING
                     self.aligner.reset()
+                    if hasattr(self, '_tracking_logged'):
+                        delattr(self, '_tracking_logged')
                     continue
             
             # Capture command detection
