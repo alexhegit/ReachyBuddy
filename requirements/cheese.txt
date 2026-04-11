@@ -1,0 +1,5 @@
+# Cheese mode - Voice photo capture
+-r base.txt
+
+# No additional dependencies
+# All required packages are in base.txt

@@ -1,0 +1,25 @@
+# Base requirements for all modes
+numpy>=1.24.0
+opencv-python>=4.8.0
+
+# Audio
+soundfile>=0.12.1
+sounddevice>=0.4.8
+
+# ASR
+faster-whisper>=1.2.1
+
+# VAD
+webrtcvad-wheels>=2.0.14
+
+# TTS (Piper)
+piper-tts>=1.4.0
+
+# Vision
+mediapipe>=0.10.0
+
+# HTTP client (for guard/chat/agent modes)
+requests>=2.31.0
+
+# Optional GUI
+dearpygui>=1.11.1

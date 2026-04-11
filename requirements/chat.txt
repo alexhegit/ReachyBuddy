@@ -1,0 +1,5 @@
+# Chat mode - Voice conversation with LLM (placeholder)
+-r base.txt
+
+# HTTP client for Ollama API
+aiohttp>=3.9.0

@@ -1,0 +1,9 @@
+# Agent mode - Voice-controlled AI agent (placeholder)
+-r base.txt
+
+# HTTP client
+aiohttp>=3.9.0
+
+# Future dependencies:
+# openclaw>=0.1.0
+# pyyaml>=6.0

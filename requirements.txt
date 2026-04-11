@@ -1,27 +1,9 @@
-# ReachyCheese - Offline Voice Photo App Dependencies
+# ReachyBuddy - Multi-mode robot application
+#
+# Install based on mode:
+#   pip install -r requirements/cheese.txt   # Photo capture (implemented)
+#   pip install -r requirements/guard.txt    # Security monitoring (placeholder)
+#   pip install -r requirements/chat.txt     # Voice chat (placeholder)
+#   pip install -r requirements/agent.txt    # AI agent (placeholder)
 
-# Core
-numpy>=1.24.0
-opencv-python>=4.8.0
-
-# Audio
-soundfile>=0.12.1
-sounddevice>=0.4.8
-
-# ASR (faster-whisper)
-faster-whisper>=1.2.1
-
-# VAD (Voice Activity Detection)
-webrtcvad-wheels>=2.0.14
-
-# TTS (Piper - Offline)
-piper-tts>=1.4.0
-
-# Vision (MediaPipe face detection)
-mediapipe>=0.10.0
-
-# Optional GUI (falls back to OpenCV if unavailable)
-dearpygui>=1.11.1
-
-# Reachy Mini SDK (install separately)
-# pip install "reachy-mini[mujoco]"
+-r requirements/cheese.txt
