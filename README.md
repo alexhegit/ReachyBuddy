@@ -80,7 +80,9 @@ Default uses Piper-TTS Ryan voice model (included in `models/`):
 - `models/en-us-ryan-medium.onnx` - English male voice (recommended)
 - `models/zh_CN-huayan-medium.onnx` - Chinese female voice
 
-Download additional voices from [Piper Voices](https://huggingface.co/rhasspy/piper-voices).
+Download additional voices from:
+- [Piper Voices (HuggingFace)](https://huggingface.co/rhasspy/piper-voices) - Full voice collection
+- [Piper Release v0.0.2](https://github.com/rhasspy/piper/releases/tag/v0.0.2) - Pre-built voice files (.onnx + .onnx.json)
 
 ---
 
