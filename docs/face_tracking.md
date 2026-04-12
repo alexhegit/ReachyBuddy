@@ -374,6 +374,209 @@ python utils/camera_tuning_gui.py --device /dev/video0
 
 ---
 
+## 附录：v4l2-ctl 工具完整指南
+
+### 安装 v4l2-ctl
+
+```bash
+# Ubuntu/Debian
+sudo apt install v4l-utils
+
+# 验证安装
+v4l2-ctl --version
+```
+
+### 列举视频设备
+
+```bash
+# 列出所有视频设备
+v4l2-ctl --list-devices
+```
+
+**输出示例（多摄像头场景）**:
+```
+Integrated Camera: Integrated C (usb-0000:00:14.0-8):
+	/dev/video0
+	/dev/video1
+
+Reachy Mini Camera: Reachy Mini (usb-0000:00:14.0-3):
+	/dev/video2
+	/dev/video3
+```
+
+### 查看设备详细信息
+
+```bash
+# 查看基本信息
+v4l2-ctl -d /dev/video0 --info
+
+# 输出示例
+Driver Info:
+	Driver name      : uvcvideo
+	Card type        : Reachy Mini Camera: Reachy Mini
+	Bus info         : usb-0000:00:14.0-3
+	Driver version   : 6.2.0
+	Capabilities     : 0x84a00001
+		Video Capture
+		Streaming
+```
+
+### 查看支持的格式和分辨率
+
+```bash
+# 查看所有支持的格式
+v4l2-ctl -d /dev/video0 --list-formats
+
+# 输出示例
+ioctl: VIDIOC_ENUM_FMT
+	Type: Video Capture
+
+	[0]: 'MJPG' (Motion-JPEG, compressed)
+	[1]: 'YUYV' (YUYV 4:2:2)
+```
+
+```bash
+# 查看格式支持的分辨率和帧率
+v4l2-ctl -d /dev/video0 --list-formats-ext
+
+# 输出示例
+	[0]: 'MJPG' (Motion-JPEG, compressed)
+		Size: Discrete 1920x1080
+			Interval: Discrete 0.017s (60.000 fps)
+		Size: Discrete 1280x720
+			Interval: Discrete 0.033s (30.000 fps)
+
+	[1]: 'YUYV' (YUYV 4:2:2)
+		Size: Discrete 1920x1080
+			Interval: Discrete 0.200s (5.000 fps)
+```
+
+### 查看当前参数
+
+```bash
+# 查看所有可调参数
+v4l2-ctl -d /dev/video0 --all
+
+# 或查看特定参数
+v4l2-ctl -d /dev/video0 --get-ctrl brightness,contrast,saturation
+
+# 输出示例
+brightness: 0
+contrast: 1
+saturation: 48
+```
+
+### 设置参数
+
+```bash
+# 设置单个参数
+v4l2-ctl -d /dev/video0 --set-ctrl brightness=10
+
+# 同时设置多个参数
+v4l2-ctl -d /dev/video0 --set-ctrl brightness=10,contrast=15,saturation=55
+
+# 重置为默认值（手动设置）
+v4l2-ctl -d /dev/video0 --set-ctrl brightness=0,contrast=1,saturation=48,sharpness=2
+```
+
+### 查看参数取值范围
+
+```bash
+# 查看参数的最小/最大值
+v4l2-ctl -d /dev/video0 --info | grep -A1 "brightness\|contrast"
+
+# 或使用 --all 查看完整信息
+v4l2-ctl -d /dev/video0 --all | grep -A5 "User Controls"
+
+# 输出示例
+User Controls
+                     brightness 0x00980900 (int)    : min=-64 max=64 step=1 default=0 value=0
+                       contrast 0x00980901 (int)    : min=0 max=95 step=1 default=1 value=1
+                     saturation 0x00980902 (int)    : min=0 max=100 step=1 default=48 value=48
+```
+
+### 实时预览调参
+
+```bash
+# 使用 ffplay 实时查看（按 q 退出）
+ffplay /dev/video0
+
+# 在另一个终端调整参数，实时观察效果
+v4l2-ctl -d /dev/video0 --set-ctrl brightness=20
+```
+
+### 批量保存和恢复参数
+
+```bash
+# 保存当前所有参数到文件
+v4l2-ctl -d /dev/video0 --all > camera_backup.txt
+
+# 提取参数值并恢复（手动方式）
+# 推荐直接使用 camera_tuning.py 工具
+python utils/camera_tuning.py --save backup_profile
+python utils/camera_tuning.py --load backup_profile
+```
+
+### 检查设备能力
+
+```bash
+# 查看设备支持的所有控制项
+v4l2-ctl -d /dev/video0 --list-ctrls
+
+# 查看扩展控制
+v4l2-ctl -d /dev/video0 --list-ctrls-menus
+```
+
+### 故障排查命令
+
+```bash
+# 检查设备是否被占用
+lsof /dev/video0
+fuser /dev/video0
+
+# 检查内核日志（排查驱动问题）
+dmesg | grep -i video
+dmesg | grep -i uvc
+
+# 重置 USB 设备（谨慎使用）
+# 先找到 bus 和 device
+lsusb | grep -i reachy
+# 输出: Bus 001 Device 005: ID xxxx:xxxx ...
+# 然后重置
+sudo usbreset 001/005
+```
+
+### 常用参数速查表
+
+| 参数 | 命令 | 默认值 | 范围 | 说明 |
+|------|------|--------|------|------|
+| 亮度 | `brightness` | 0 | -64 ~ 64 | 整体明暗 |
+| 对比度 | `contrast` | 1 | 0 ~ 95 | 明暗差异 |
+| 饱和度 | `saturation` | 48 | 0 ~ 100 | 色彩浓度 |
+| 色调 | `hue` | 0 | -2000 ~ 2000 | 色彩偏移 |
+| 伽马 | `gamma` | 100 | 80 ~ 160 | 中间调亮度 |
+| 增益 | `gain` | 32 | 0 ~ 255 | 信号增益 |
+| 锐度 | `sharpness` | 2 | 0 ~ 7 | 边缘清晰度 |
+| 背光补偿 | `backlight_compensation` | 2 | 0 ~ 10 | 逆光补偿 |
+| 自动曝光 | `auto_exposure` | 3 | 0 ~ 3 | 3=自动模式 |
+| 曝光时间 | `exposure_time_absolute` | 166 | 3 ~ 2047 | 需关闭自动曝光 |
+
+### v4l2-ctl vs camera_tuning 工具对比
+
+| 需求 | v4l2-ctl | camera_tuning.py | camera_tuning_gui.py |
+|------|----------|------------------|---------------------|
+| 快速查看参数 | ✅ | ✅ | ✅ |
+| 批量设置参数 | ✅ | ✅ | ✅ |
+| 实时预览效果 | ❌ | ❌ | ✅ |
+| 保存/加载配置 | ❌ | ✅ | ✅ |
+| 安全保护（防误操作） | ❌ | ✅ | ✅ |
+| 自动探测 Reachy | ❌ | ✅ | ✅ |
+| 图形化调节 | ❌ | ❌ | ✅ |
+
+**推荐**：日常使用 `camera_tuning_gui.py`，调试时可用 `v4l2-ctl` 快速验证。
+
+---
+
 ## 总结
 
 | 需求 | 推荐模式 | 额外配置 |
