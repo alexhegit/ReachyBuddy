@@ -56,7 +56,7 @@ class PiperTTSEngine:
                 print(f"💡 Found available models:")
                 for m in found_models:
                     print(f"   --piper-model {m}")
-                print(f"\nExample: python ReachyCheese.py --piper-model {found_models[0]}")
+                print(f"\nExample: python main.py --cheese --piper-model {found_models[0]}")
             else:
                 print("⚠️ No .onnx models found. Please download one from https://github.com/rhasspy/piper/releases/tag/v0.0.2")
 
