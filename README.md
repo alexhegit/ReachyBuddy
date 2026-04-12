@@ -39,8 +39,7 @@ These modes are planned for future development. Running them will show a "coming
 
 - **OS**: Ubuntu 22.04+ / Linux
 - **Hardware**: AMD Ryzen AI or x86_64 platform
-- **Robot**: Pollen Robotics Reachy Mini (or webcam-only mode for testing)
-- **Camera**: USB webcam or built-in laptop camera
+- **Robot**: Pollen Robotics Reachy Mini (with built-in camera)
 
 ---
 
@@ -220,6 +219,66 @@ python main.py --cheese --camera-source webcam --camera-index 1
 
 ---
 
+## 📷 Camera Tuning
+
+Reachy Mini's camera may produce darker images compared to webcams due to hardware ISP differences. Use the built-in tuning tools to optimize image quality.
+
+### GUI Tuning Tool (Recommended)
+
+```bash
+# Auto-detect Reachy camera and launch GUI
+python utils/camera_tuning_gui.py
+```
+
+**Features:**
+- Real-time preview with parameter adjustment
+- Visual trackbars for all camera parameters
+- Save/load configuration profiles
+- Automatic Reachy camera detection
+- Safety protection against modifying wrong cameras
+
+**Workflow:**
+1. Launch GUI: `python utils/camera_tuning_gui.py`
+2. Adjust sliders (brightness, contrast, saturation, etc.)
+3. Click **Save** button and name your profile (e.g., `indoor_bright`)
+4. Use profile in your application:
+   ```bash
+   python main.py --cheese --camera-source reachy --camera-profile indoor_bright
+   ```
+
+### CLI Tuning Tool
+
+```bash
+# View current parameters
+python utils/camera_tuning.py --list
+
+# Set parameters
+python utils/camera_tuning.py --set brightness=10,contrast=15,saturation=55
+
+# Save profile
+python utils/camera_tuning.py --save my_profile
+
+# Load profile
+python utils/camera_tuning.py --load my_profile
+
+# Reset to defaults
+python utils/camera_tuning.py --reset
+```
+
+### Recommended Settings
+
+| Scenario | Brightness | Contrast | Saturation | Sharpness |
+|----------|-----------|----------|------------|-----------|
+| Factory Default | 0 | 1 | 48 | 2 |
+| Indoor Bright | 5-10 | 10-15 | 55-60 | 3 |
+| Low Light | 15-20 | 20-25 | 60-65 | 4 |
+
+**Note:** Camera profiles are stored in `~/.config/reachy_mini/`
+
+See [docs/face_tracking.md](./docs/face_tracking.md) for detailed camera documentation.
+
+---
+
 ## 🎮 Voice Commands (Cheese Mode)
 
 | Command | Action |
@@ -283,6 +342,7 @@ Cheese Mode Options:
   --save-dir PATH                  Photo save directory
   --wake-word TEXT                 Wake word (default: reachy)
   --timeout FLOAT                  Command timeout in seconds (default: 12)
+  --camera-profile NAME            Camera profile to load (created via tuning tools)
 ```
 
 ---
@@ -306,6 +366,8 @@ ReachyBuddy/
 │   └── tts_engine.py       # Text-to-speech
 ├── vision/                  # Computer vision
 │   └── face_tracker.py     # Face detection
+├── docs/                    # Documentation
+│   └── face_tracking.md    # Camera and face tracking guide
 ├── requirements/            # Per-mode dependencies
 └── models/                  # Voice models
 ```
@@ -360,6 +422,24 @@ If using `--camera-source webcam` and getting the wrong camera:
 1. List all cameras: `v4l2-ctl --list-devices`
 2. Test each index: `python -c "import cv2; cap = cv2.VideoCapture(1); print(cap.isOpened())"`
 3. Use correct index: `--camera-source webcam --camera-index 1`
+
+### Image Too Dark (Reachy Mode)
+
+Reachy Mini's camera may produce darker images than webcams due to hardware differences.
+
+**Solution:**
+```bash
+# Use camera tuning tool to adjust parameters
+python utils/camera_tuning_gui.py
+
+# Recommended starting values:
+# brightness: 5-10, contrast: 10-15, saturation: 55-60
+
+# Save profile and use it
+python main.py --cheese --camera-source reachy --camera-profile my_profile
+```
+
+See [docs/face_tracking.md](./docs/face_tracking.md) for detailed explanation.
 
 ### Speech Not Recognized
 
