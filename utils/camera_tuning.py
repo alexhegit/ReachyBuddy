@@ -525,7 +525,7 @@ class CameraTuner:
                 break
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(
         description="Camera tuning utility for Reachy Mini",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -611,6 +611,12 @@ Examples:
         help="Skip confirmation prompts (use with caution!)"
     )
     
+    parser.add_argument(
+        "--allow-any-camera", "--force",
+        action="store_true",
+        help="Allow modification of non-Reachy cameras (DANGEROUS!)"
+    )
+    
     args = parser.parse_args()
     
     # Auto-detect Reachy camera if using default device
@@ -641,10 +647,16 @@ Examples:
         print(f"   Name: {name}")
         print(f"   Status: {status}")
         
-        if "NOT Reachy" in status and not args.yes:
-            print("\n⚠️  WARNING: This is NOT a Reachy camera!")
-            print("   Use --yes to proceed anyway")
-            return
+        # STRICT MODE: Reject non-Reachy cameras unless explicitly allowed
+        if "NOT Reachy" in status:
+            if not args.allow_any_camera:
+                print("\n❌ ERROR: This is NOT a Reachy camera!")
+                print("   Modification of non-Reachy cameras is FORBIDDEN.")
+                print("   Use --allow-any-camera if you really want to proceed.")
+                return 1  # Exit with error code
+            else:
+                print("\n⚠️  DANGER: You are about to modify a NON-Reachy camera!")
+                print("   This could break your laptop webcam or other devices.")
     
     tuner = CameraTuner(device=device, auto_confirm=args.yes)
     
@@ -652,7 +664,7 @@ Examples:
     if not any([args.list, args.save, args.load, args.set, args.reset, 
                 args.profiles, args.interactive]):
         tuner.list_params()
-        return
+        return 0
     
     if args.list:
         tuner.list_params()
@@ -679,7 +691,10 @@ Examples:
     
     if args.interactive:
         tuner.interactive_tune()
+    
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())
