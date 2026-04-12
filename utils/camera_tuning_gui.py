@@ -94,9 +94,13 @@ class CameraTuningGUI:
         self.cap = None
         
         # Window settings
-        self.window_name = "Camera Tuning - Press 's'=save, 'l'=load, 'r'=reset, 'q'=quit"
+        self.window_name = "Camera Tuning GUI"
         self.preview_width = 640
         self.preview_height = 480
+        
+        # Button states for visual feedback
+        self.button_pressed = None
+        self.button_press_time = 0
         
     def _map_to_trackbar(self, param: str, value: int) -> int:
         """Map actual parameter value to trackbar 0-100 range."""
@@ -149,6 +153,72 @@ class CameraTuningGUI:
             self.current_values[param] = new_value
             v4l2_set(self.device, {param: new_value})
     
+    def _draw_button(self, canvas: np.ndarray, x: int, y: int, w: int, h: int, 
+                     label: str, is_pressed: bool = False) -> None:
+        """Draw a button on the canvas."""
+        # Colors
+        if is_pressed:
+            bg_color = (100, 150, 200)  # Lighter when pressed
+            text_color = (255, 255, 255)
+            border_color = (200, 200, 255)
+        else:
+            bg_color = (60, 100, 150)  # Normal blue
+            text_color = (255, 255, 255)
+            border_color = (100, 150, 200)
+        
+        # Button background
+        cv2.rectangle(canvas, (x, y), (x + w, y + h), bg_color, -1)
+        # Button border
+        cv2.rectangle(canvas, (x, y), (x + w, y + h), border_color, 2)
+        
+        # Button text (centered)
+        text_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
+        text_x = x + (w - text_size[0]) // 2
+        text_y = y + (h + text_size[1]) // 2
+        cv2.putText(canvas, label, (text_x, text_y), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, text_color, 2)
+    
+    def _get_button_regions(self, panel_x: int, start_y: int) -> Dict[str, tuple]:
+        """Get button click regions (x, y, w, h) for each button."""
+        btn_w = 105
+        btn_h = 35
+        gap = 10
+        
+        return {
+            "save": (panel_x + 10, start_y, btn_w, btn_h),
+            "load": (panel_x + 10 + btn_w + gap, start_y, btn_w, btn_h),
+            "reset": (panel_x + 10, start_y + btn_h + gap, btn_w, btn_h),
+            "quit": (panel_x + 10 + btn_w + gap, start_y + btn_h + gap, btn_w, btn_h),
+        }
+    
+    def _handle_mouse_click(self, event: int, x: int, y: int, flags: int, param: any) -> None:
+        """Handle mouse click events for buttons."""
+        if event != cv2.EVENT_LBUTTONDOWN:
+            return
+        
+        h, w = self.preview_height, self.preview_width
+        panel_x = w
+        
+        # Button region starts near bottom
+        start_y = h - 140
+        buttons = self._get_button_regions(panel_x, start_y)
+        
+        for btn_name, (bx, by, bw, bh) in buttons.items():
+            if bx <= x < bx + bw and by <= y < by + bh:
+                self.button_pressed = btn_name
+                self.button_press_time = cv2.getTickCount()
+                
+                # Execute action
+                if btn_name == "save":
+                    self._save_profile()
+                elif btn_name == "load":
+                    self._load_profile()
+                elif btn_name == "reset":
+                    self._reset_defaults()
+                elif btn_name == "quit":
+                    self._should_quit = True
+                break
+    
     def _draw_info_panel(self, frame: np.ndarray) -> np.ndarray:
         """Draw parameter info panel on the right side of frame."""
         h, w = frame.shape[:2]
@@ -194,19 +264,24 @@ class CameraTuningGUI:
             
             y += 55
         
-        # Draw help text
-        y = h - 80
-        cv2.line(canvas, (w + 10, y - 10), (w + panel_width - 10, y - 10), (100, 100, 100), 1)
-        cv2.putText(canvas, "Controls:", (w + 10, y), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
-        cv2.putText(canvas, "s - Save profile", (w + 10, y + 20), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
-        cv2.putText(canvas, "l - Load profile", (w + 10, y + 38), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
-        cv2.putText(canvas, "r - Reset defaults", (w + 10, y + 56), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
-        cv2.putText(canvas, "q - Quit", (w + 10, y + 74), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
+        # Draw buttons at the bottom
+        start_y = h - 140
+        buttons = self._get_button_regions(w, start_y)
+        
+        # Check if button is pressed (for visual feedback)
+        import time
+        is_pressed = lambda name: (self.button_pressed == name and 
+                                   (cv2.getTickCount() - self.button_press_time) / cv2.getTickFrequency() < 0.2)
+        
+        # Draw buttons
+        for btn_name, (bx, by, bw, bh) in buttons.items():
+            label = btn_name.capitalize()
+            self._draw_button(canvas, bx, by, bw, bh, label, is_pressed(btn_name))
+        
+        # Draw keyboard shortcuts hint
+        hint_y = h - 25
+        cv2.putText(canvas, "Hotkeys: s=save, l=load, r=reset, q=quit", 
+                   (w + 10, hint_y), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (120, 120, 120), 1)
         
         return canvas
     
@@ -306,18 +381,24 @@ class CameraTuningGUI:
         self.current_values = self._read_camera_values()
         print("Current camera values:", self.current_values)
         
-        # Create window
+        # Initialize GUI state
+        self._should_quit = False
+        self.button_pressed = None
+        self.button_press_time = 0
+        
+        # Create window and set up mouse callback
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(self.window_name, 900, 600)
+        cv2.setMouseCallback(self.window_name, self._handle_mouse_click)
         
         # Create trackbars
         self._create_trackbars()
         
         print("\n🎛️  Camera Tuning GUI started")
-        print("Adjust trackbars to change parameters in real-time")
+        print("Adjust trackbars or click buttons to change parameters")
         print("Press 's'=save, 'l'=load, 'r'=reset, 'q'=quit\n")
         
-        while True:
+        while not self._should_quit:
             # Read frame
             ret, frame = self.cap.read()
             if not ret:
@@ -327,7 +408,7 @@ class CameraTuningGUI:
             # Resize to preview size
             frame = cv2.resize(frame, (self.preview_width, self.preview_height))
             
-            # Draw info panel
+            # Draw info panel with buttons
             display = self._draw_info_panel(frame)
             
             # Show
