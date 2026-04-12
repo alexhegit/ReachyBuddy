@@ -3,9 +3,9 @@
 **ReachyBuddy** — A multi-mode robot application for Reachy Mini with pluggable modes:
 
 - **🧀 Cheese Mode**: Voice photo capture with face tracking
-- **🔒 Guard Mode**: Multi-modal security monitoring (placeholder)
-- **💬 Chat Mode**: Voice conversation with LLM (placeholder)  
-- **🤖 Agent Mode**: AI agent with tools (placeholder)
+- **🔒 Guard Mode**: Multi-modal security monitoring (placeholder, TODO)
+- **💬 Chat Mode**: Voice conversation with LLM (placeholder, TODO)  
+- **🤖 Agent Mode**: AI agent with tools (placeholder, TODO)
 
 ![Demo](./assets/ReachyMiniChat.png)
 
