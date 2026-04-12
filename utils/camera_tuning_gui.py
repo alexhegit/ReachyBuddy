@@ -27,6 +27,123 @@ import numpy as np
 DEFAULT_DEVICE = "/dev/video0"
 PROFILE_DIR = Path.home() / ".config" / "reachy_mini"
 
+# Reachy camera identifiers (VID:PID)
+REACHY_CAMERAS = [
+    (0x38fb, 0x1002),  # Reachy Mini Lite
+    (0x1bcf, 0x28c4),  # Older RPi Camera
+    (0x0c45, 0x636d),  # Arducam
+]
+
+
+def find_reachy_camera() -> Optional[str]:
+    """Auto-detect Reachy camera device path.
+    
+    Returns:
+        Device path (e.g., '/dev/video0') or None if not found
+    """
+    try:
+        # Method 1: Check by device name using v4l2-ctl
+        result = subprocess.run(
+            ["v4l2-ctl", "--list-devices"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split("\n")
+            reachy_section = False
+            for line in lines:
+                line_stripped = line.strip()
+                # Check if this is a Reachy camera section header
+                if "Reachy" in line_stripped or "Arducam" in line_stripped:
+                    reachy_section = True
+                    continue
+                # If we're in Reachy section and find a video device
+                if reachy_section and "/dev/video" in line_stripped:
+                    device = line_stripped.split("(")[0].strip()
+                    # Verify this device supports controls by testing brightness
+                    try:
+                        test_result = subprocess.run(
+                            ["v4l2-ctl", "-d", device, "--get-ctrl", "brightness"],
+                            capture_output=True,
+                            timeout=2
+                        )
+                        if test_result.returncode == 0:
+                            return device
+                    except Exception:
+                        pass
+                    # This device doesn't support controls, continue to next
+                    continue
+                # Empty line or new section ends Reachy section
+                if reachy_section and (not line_stripped or ":" in line_stripped):
+                    reachy_section = False
+        
+        # Method 2: Check via /sys/class/video4linux for device names
+        sys_video_path = Path("/sys/class/video4linux")
+        if sys_video_path.exists():
+            for device_dir in sorted(sys_video_path.glob("video*")):
+                name_file = device_dir / "name"
+                if name_file.exists():
+                    name = name_file.read_text().strip()
+                    if "reachy" in name.lower() or "arducam" in name.lower():
+                        device = f"/dev/{device_dir.name}"
+                        # Verify it supports controls
+                        try:
+                            test_result = subprocess.run(
+                                ["v4l2-ctl", "-d", device, "--get-ctrl", "brightness"],
+                                capture_output=True,
+                                timeout=2
+                            )
+                            if test_result.returncode == 0:
+                                return device
+                        except Exception:
+                            pass
+        
+    except Exception as e:
+        print(f"Warning: Failed to auto-detect Reachy camera: {e}")
+    
+    return None
+
+
+def list_all_cameras() -> List[Tuple[str, str]]:
+    """List all available cameras.
+    
+    Returns:
+        List of (device_path, name) tuples
+    """
+    cameras = []
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "--list-devices"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split("\n")
+            current_name = "Unknown"
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                if "/dev/video" in line:
+                    device = line.split("(")[0].strip()
+                    cameras.append((device, current_name))
+                else:
+                    current_name = line.split(":")[0].strip()
+    except Exception:
+        pass
+    
+    # Fallback: scan /dev/video*
+    if not cameras:
+        for i in range(10):
+            device = f"/dev/video{i}"
+            if Path(device).exists():
+                cameras.append((device, f"Camera {i}"))
+    
+    return cameras
+
+
 def get_camera_specs():
     """Get camera specifications."""
     return {
@@ -366,6 +483,25 @@ class CameraTuningGUI:
     
     def run(self):
         """Run the GUI main loop."""
+        # Auto-detect Reachy camera if using default device
+        if self.device == DEFAULT_DEVICE:
+            detected = find_reachy_camera()
+            if detected and detected != self.device:
+                print(f"🔍 Auto-detected Reachy camera: {detected}")
+                self.device = detected
+            elif detected is None:
+                # List available cameras and let user choose
+                cameras = list_all_cameras()
+                if len(cameras) > 1:
+                    print("\n📷 Multiple cameras detected:")
+                    for i, (dev, name) in enumerate(cameras, 1):
+                        marker = " ← Reachy?" if "reachy" in name.lower() or "arducam" in name.lower() else ""
+                        print(f"  {i}. {dev} - {name}{marker}")
+                    print(f"  Using default: {self.device}")
+                    print(f"  (Use --device to specify another camera)\n")
+                elif len(cameras) == 1:
+                    print(f"📷 Found camera: {cameras[0][0]} - {cameras[0][1]}")
+        
         # Open camera
         print(f"Opening camera: {self.device}")
         self.cap = cv2.VideoCapture(self.device)

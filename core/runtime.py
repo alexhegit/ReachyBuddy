@@ -24,6 +24,81 @@ except Exception:
 DEFAULT_CAMERA_DEVICE = "/dev/video0"
 PROFILE_DIR = Path.home() / ".config" / "reachy_mini"
 
+# Reachy camera identifiers (name patterns and VID:PID)
+REACHY_CAMERA_PATTERNS = ["reachy", "arducam"]
+REACHY_CAMERAS_VID_PID = [
+    (0x38fb, 0x1002),  # Reachy Mini Lite
+    (0x1bcf, 0x28c4),  # Older RPi Camera
+    (0x0c45, 0x636d),  # Arducam
+]
+
+
+def find_reachy_camera() -> Optional[str]:
+    """Auto-detect Reachy camera device path.
+    
+    Returns:
+        Device path (e.g., '/dev/video0') or None if not found
+    """
+    try:
+        # Method 1: Check by device name using v4l2-ctl
+        result = subprocess.run(
+            ["v4l2-ctl", "--list-devices"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            lines = result.stdout.strip().split("\n")
+            reachy_section = False
+            for line in lines:
+                line_stripped = line.strip()
+                # Check if this is a Reachy camera section header
+                if any(pattern in line_stripped.lower() for pattern in REACHY_CAMERA_PATTERNS):
+                    reachy_section = True
+                    continue
+                # If we're in Reachy section and find a video device
+                if reachy_section and "/dev/video" in line_stripped:
+                    device = line_stripped.split("(")[0].strip()
+                    # Verify this device supports controls
+                    try:
+                        test_result = subprocess.run(
+                            ["v4l2-ctl", "-d", device, "--get-ctrl", "brightness"],
+                            capture_output=True,
+                            timeout=2
+                        )
+                        if test_result.returncode == 0:
+                            return device
+                    except Exception:
+                        pass
+                    continue
+                # Empty line or new section ends Reachy section
+                if reachy_section and (not line_stripped or ":" in line_stripped):
+                    reachy_section = False
+        
+        # Method 2: Check via /sys/class/video4linux
+        sys_video_path = Path("/sys/class/video4linux")
+        if sys_video_path.exists():
+            for device_dir in sorted(sys_video_path.glob("video*")):
+                name_file = device_dir / "name"
+                if name_file.exists():
+                    name = name_file.read_text().strip()
+                    if any(pattern in name.lower() for pattern in REACHY_CAMERA_PATTERNS):
+                        device = f"/dev/{device_dir.name}"
+                        # Verify it supports controls
+                        try:
+                            test_result = subprocess.run(
+                                ["v4l2-ctl", "-d", device, "--get-ctrl", "brightness"],
+                                capture_output=True,
+                                timeout=2
+                            )
+                            if test_result.returncode == 0:
+                                return device
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+    return None
+
 
 class RobotRuntime:
     """Abstract base for robot/webcam runtime."""
@@ -55,16 +130,24 @@ class RobotRuntime:
         return False
 
 
-def load_camera_profile(profile_name: str, device: str = DEFAULT_CAMERA_DEVICE) -> bool:
+def load_camera_profile(profile_name: str, device: Optional[str] = None) -> bool:
     """Load camera parameters from a saved profile.
     
     Args:
         profile_name: Name of the profile to load
-        device: Camera device path
+        device: Camera device path (auto-detected if None)
         
     Returns:
         True if profile was loaded successfully
     """
+    # Auto-detect Reachy camera if device not specified
+    if device is None or device == DEFAULT_CAMERA_DEVICE:
+        detected = find_reachy_camera()
+        if detected:
+            device = detected
+        else:
+            device = DEFAULT_CAMERA_DEVICE
+    
     profile_path = PROFILE_DIR / f"{profile_name}.json"
     if not profile_path.exists():
         return False
