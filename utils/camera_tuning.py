@@ -37,6 +37,31 @@ REACHY_CAMERAS = [
 ]
 
 
+def get_device_info_direct(device: str) -> Tuple[str, str]:
+    """Get device name and info (standalone function).
+    
+    Returns:
+        Tuple of (device_name, status_string)
+    """
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "-d", device, "--info"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            for line in result.stdout.split("\n"):
+                if "Card type" in line:
+                    name = line.split(":", 1)[1].strip()
+                    is_reachy = "reachy" in name.lower() or "arducam" in name.lower()
+                    status = "✓ Reachy" if is_reachy else "⚠️ NOT Reachy"
+                    return name, status
+    except Exception:
+        pass
+    return "Unknown", "?"
+
+
 def find_reachy_camera() -> Optional[str]:
     """Auto-detect Reachy camera device path."""
     try:
@@ -190,10 +215,72 @@ class CameraProfile:
 class CameraTuner:
     """Camera tuning utility using v4l2-ctl."""
     
-    def __init__(self, device: str = DEFAULT_DEVICE):
+    def __init__(self, device: str = DEFAULT_DEVICE, auto_confirm: bool = False):
         self.device = device
         self.profile_dir = PROFILE_DIR
         self.profile_dir.mkdir(parents=True, exist_ok=True)
+        self.auto_confirm = auto_confirm
+        self._backup_params: Optional[Dict[str, int]] = None
+    
+    def get_device_info(self) -> Tuple[str, str]:
+        """Get device name and info.
+        
+        Returns:
+            Tuple of (device_name, is_reachy)
+        """
+        try:
+            result = subprocess.run(
+                ["v4l2-ctl", "-d", self.device, "--info"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                for line in result.stdout.split("\n"):
+                    if "Card type" in line:
+                        name = line.split(":", 1)[1].strip()
+                        is_reachy = "reachy" in name.lower() or "arducam" in name.lower()
+                        return name, "✓ Reachy" if is_reachy else "⚠️ NOT Reachy"
+        except Exception:
+            pass
+        return "Unknown", "?"
+    
+    def confirm_operation(self, operation: str) -> bool:
+        """Ask user to confirm operation on current device.
+        
+        Returns:
+            True if confirmed or auto_confirm is enabled
+        """
+        if self.auto_confirm:
+            return True
+        
+        name, status = self.get_device_info()
+        print(f"\n⚠️  About to {operation}")
+        print(f"   Device: {self.device}")
+        print(f"   Name:   {name}")
+        print(f"   Status: {status}")
+        
+        if "NOT Reachy" in status:
+            print("\n❌ WARNING: This does NOT appear to be a Reachy camera!")
+        
+        try:
+            response = input(f"\nProceed? [y/N]: ").strip().lower()
+            return response in ('y', 'yes')
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled")
+            return False
+    
+    def backup_params(self) -> bool:
+        """Backup current parameters before modification."""
+        self._backup_params = self.get_current_params()
+        return self._backup_params is not None
+    
+    def restore_backup(self) -> bool:
+        """Restore parameters from backup."""
+        if self._backup_params is None:
+            print("No backup available")
+            return False
+        return self.set_params(self._backup_params)
     
     def _run_v4l2_ctl(self, args: List[str]) -> Tuple[bool, str]:
         """Run v4l2-ctl command and return success status and output."""
@@ -236,8 +323,15 @@ class CameraTuner:
                     pass
         return params
     
-    def set_params(self, params: Dict[str, int]) -> bool:
-        """Set camera parameters."""
+    def set_params(self, params: Dict[str, int], confirm: bool = True) -> bool:
+        """Set camera parameters with optional confirmation."""
+        if confirm and not self.auto_confirm:
+            if not self.confirm_operation("set parameters"):
+                return False
+        
+        # Backup before modification
+        self.backup_params()
+        
         ctrl_str = ",".join([f"{k}={v}" for k, v in params.items()])
         success, output = self._run_v4l2_ctl(["--set-ctrl", ctrl_str])
         if not success:
@@ -337,10 +431,16 @@ class CameraTuner:
         """Get list of profile names."""
         return [p.stem for p in self.profile_dir.glob("*.json")]
     
-    def reset_to_defaults(self) -> bool:
-        """Reset all parameters to camera defaults."""
+    def reset_to_defaults(self, confirm: bool = True) -> bool:
+        """Reset all parameters to camera defaults with confirmation."""
+        if confirm and not self.confirm_operation("RESET to defaults"):
+            return False
+        
         print("🔄 Resetting camera to default parameters...")
-        if self.set_params(DEFAULT_VALUES):
+        # Backup before reset
+        self.backup_params()
+        
+        if self.set_params(DEFAULT_VALUES, confirm=False):
             print("✅ Camera reset to defaults")
             self.list_params()
             return True
@@ -505,6 +605,12 @@ Examples:
         help="Description for saved profile"
     )
     
+    parser.add_argument(
+        "--yes", "-y",
+        action="store_true",
+        help="Skip confirmation prompts (use with caution!)"
+    )
+    
     args = parser.parse_args()
     
     # Auto-detect Reachy camera if using default device
@@ -528,7 +634,19 @@ Examples:
             elif len(cameras) == 1:
                 print(f"📷 Found camera: {cameras[0][0]} - {cameras[0][1]}")
     
-    tuner = CameraTuner(device=device)
+    # Show device info before proceeding with modifications
+    if args.set or args.reset or args.load:
+        name, status = get_device_info_direct(device)
+        print(f"\n📷 Target device: {device}")
+        print(f"   Name: {name}")
+        print(f"   Status: {status}")
+        
+        if "NOT Reachy" in status and not args.yes:
+            print("\n⚠️  WARNING: This is NOT a Reachy camera!")
+            print("   Use --yes to proceed anyway")
+            return
+    
+    tuner = CameraTuner(device=device, auto_confirm=args.yes)
     
     # Default action: list parameters
     if not any([args.list, args.save, args.load, args.set, args.reset, 
@@ -549,12 +667,12 @@ Examples:
         params = tuner.parse_param_string(args.set)
         if params:
             print(f"Setting parameters: {params}")
-            if tuner.set_params(params):
+            if tuner.set_params(params, confirm=not args.yes):
                 print("✅ Parameters set successfully")
                 tuner.list_params()
     
     if args.reset:
-        tuner.reset_to_defaults()
+        tuner.reset_to_defaults(confirm=not args.yes)
     
     if args.profiles:
         tuner.list_profiles()
