@@ -387,8 +387,12 @@ class CheeseModeApp(BaseModeApp):
         self.voice = VoiceIO(self.cfg)
         self.gui = CheeseGUI(self.cfg)
         
-        # Create runtime
-        self.runtime = create_runtime(self.cfg.camera_source, self.cfg.camera_index)
+        # Create runtime (with optional camera profile for reachy mode)
+        self.runtime = create_runtime(
+            self.cfg.camera_source, 
+            self.cfg.camera_index,
+            camera_profile=self.cfg.camera_profile if self.cfg.camera_source == "reachy" else None
+        )
         try:
             self.runtime.__enter__()
         except Exception as exc:

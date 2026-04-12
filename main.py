@@ -77,6 +77,12 @@ For mode-specific help:
         help="Webcam index (default: 0)",
     )
     global_group.add_argument(
+        "--camera-profile",
+        type=str,
+        default=None,
+        help="Camera profile name to load (for reachy mode). Use camera_tuning_gui.py to create profiles",
+    )
+    global_group.add_argument(
         "--preview-width",
         type=int,
         default=640,
@@ -245,6 +251,7 @@ def build_config(args) -> tuple:
             save_dir=args.save_dir,
             wake_word=args.wake_word,
             command_timeout_s=args.timeout,
+            camera_profile=args.camera_profile,
         )
     elif args.guard:
         mode = "guard"

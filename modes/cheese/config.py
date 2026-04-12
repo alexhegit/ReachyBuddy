@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from core.base_app import ModeConfig
 
@@ -25,6 +26,9 @@ class CheeseConfig(ModeConfig):
     deadzone_x: int = 25
     deadzone_y: int = 20
     stable_needed: int = 10
+    
+    # Camera profile for hardware parameter tuning (reachy mode only)
+    camera_profile: Optional[str] = None
     
     def __post_init__(self):
         """Ensure save_dir is a Path object."""

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+import json
+import subprocess
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -15,6 +18,11 @@ except Exception:
     
     def create_head_pose(*args, **kwargs):
         return None
+
+
+# Default camera device and profile directory
+DEFAULT_CAMERA_DEVICE = "/dev/video0"
+PROFILE_DIR = Path.home() / ".config" / "reachy_mini_chat"
 
 
 class RobotRuntime:
@@ -47,12 +55,47 @@ class RobotRuntime:
         return False
 
 
+def load_camera_profile(profile_name: str, device: str = DEFAULT_CAMERA_DEVICE) -> bool:
+    """Load camera parameters from a saved profile.
+    
+    Args:
+        profile_name: Name of the profile to load
+        device: Camera device path
+        
+    Returns:
+        True if profile was loaded successfully
+    """
+    profile_path = PROFILE_DIR / f"{profile_name}.json"
+    if not profile_path.exists():
+        return False
+    
+    try:
+        with open(profile_path, "r") as f:
+            data = json.load(f)
+        
+        params = data.get("params", {})
+        if not params:
+            return False
+        
+        # Use v4l2-ctl to apply parameters
+        ctrl_str = ",".join([f"{k}={v}" for k, v in params.items()])
+        result = subprocess.run(
+            ["v4l2-ctl", "-d", device, "--set-ctrl", ctrl_str],
+            capture_output=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 class ReachyRuntime(RobotRuntime):
     """Runtime for physical Reachy Mini robot."""
     
-    def __init__(self):
+    def __init__(self, camera_profile: Optional[str] = None):
         self._ctx = None
         self._reachy = None
+        self._camera_profile = camera_profile
     
     def __enter__(self):
         if ReachyMini is None:
@@ -61,6 +104,15 @@ class ReachyRuntime(RobotRuntime):
                 "Use --camera-source webcam for local test, "
                 "or install: pip install 'reachy-mini[mujoco]'"
             )
+        
+        # Load camera profile if specified (before SDK initializes camera)
+        if self._camera_profile:
+            print(f"📷 Loading camera profile: {self._camera_profile}")
+            if load_camera_profile(self._camera_profile):
+                print(f"✅ Camera profile '{self._camera_profile}' loaded")
+            else:
+                print(f"⚠️ Failed to load camera profile: {self._camera_profile}")
+        
         self._ctx = ReachyMini(media_backend="default")
         self._reachy = self._ctx.__enter__()
         return self
@@ -138,9 +190,15 @@ class WebcamRuntime(RobotRuntime):
         pass
 
 
-def create_runtime(camera_source: str, camera_index: int = 0) -> RobotRuntime:
-    """Factory function to create appropriate runtime."""
+def create_runtime(camera_source: str, camera_index: int = 0, camera_profile: Optional[str] = None) -> RobotRuntime:
+    """Factory function to create appropriate runtime.
+    
+    Args:
+        camera_source: "reachy" or "webcam"
+        camera_index: Camera device index for webcam mode
+        camera_profile: Name of camera profile to load (for reachy mode)
+    """
     if camera_source == "reachy":
-        return ReachyRuntime()
+        return ReachyRuntime(camera_profile=camera_profile)
     else:
         return WebcamRuntime(camera_index)
