@@ -27,7 +27,7 @@ from typing import Dict, List, Optional, Tuple
 DEFAULT_DEVICE = "/dev/video0"
 
 # Profile storage directory
-PROFILE_DIR = Path.home() / ".config" / "reachy_mini_chat"
+PROFILE_DIR = Path.home() / ".config" / "reachy_mini"
 
 # Parameters that can be adjusted
 # Note: white_balance_temperature is read-only when auto WB is enabled

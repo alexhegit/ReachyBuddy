@@ -25,7 +25,7 @@ import numpy as np
 
 
 DEFAULT_DEVICE = "/dev/video0"
-PROFILE_DIR = Path.home() / ".config" / "reachy_mini_chat"
+PROFILE_DIR = Path.home() / ".config" / "reachy_mini"
 
 def get_camera_specs():
     """Get camera specifications."""

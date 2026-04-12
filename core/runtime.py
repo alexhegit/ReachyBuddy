@@ -22,7 +22,7 @@ except Exception:
 
 # Default camera device and profile directory
 DEFAULT_CAMERA_DEVICE = "/dev/video0"
-PROFILE_DIR = Path.home() / ".config" / "reachy_mini_chat"
+PROFILE_DIR = Path.home() / ".config" / "reachy_mini"
 
 
 class RobotRuntime:
