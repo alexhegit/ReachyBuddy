@@ -30,7 +30,7 @@ def _register_all_modes():
     from .guard import GuardModeApp
     from .chat import ChatModeApp
     from .agent import AgentModeApp
-    
+
     register_mode("cheese", CheeseModeApp)
     register_mode("guard", GuardModeApp)
     register_mode("chat", ChatModeApp)

@@ -39,7 +39,7 @@ REACHY_CAMERAS = [
 
 def get_device_info_direct(device: str) -> Tuple[str, str]:
     """Get device name and info (standalone function).
-    
+
     Returns:
         Tuple of (device_name, status_string)
     """
@@ -99,7 +99,7 @@ def find_reachy_camera() -> Optional[str]:
                 # Empty line or new section ends Reachy section
                 if reachy_section and (not line_stripped or ":" in line_stripped):
                     reachy_section = False
-        
+
         # Check via /sys/class/video4linux
         sys_video_path = Path("/sys/class/video4linux")
         if sys_video_path.exists():
@@ -149,13 +149,13 @@ def list_all_cameras() -> List[Tuple[str, str]]:
                     current_name = line.split(":")[0].strip()
     except Exception:
         pass
-    
+
     if not cameras:
         for i in range(10):
             device = f"/dev/video{i}"
             if Path(device).exists():
                 cameras.append((device, f"Camera {i}"))
-    
+
     return cameras
 
 
@@ -193,7 +193,7 @@ class CameraProfile:
     description: str
     params: Dict[str, int]
     device: str = DEFAULT_DEVICE
-    
+
     def to_dict(self) -> dict:
         return {
             "name": self.name,
@@ -201,7 +201,7 @@ class CameraProfile:
             "params": self.params,
             "device": self.device,
         }
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "CameraProfile":
         return cls(
@@ -214,17 +214,17 @@ class CameraProfile:
 
 class CameraTuner:
     """Camera tuning utility using v4l2-ctl."""
-    
+
     def __init__(self, device: str = DEFAULT_DEVICE, auto_confirm: bool = False):
         self.device = device
         self.profile_dir = PROFILE_DIR
         self.profile_dir.mkdir(parents=True, exist_ok=True)
         self.auto_confirm = auto_confirm
         self._backup_params: Optional[Dict[str, int]] = None
-    
+
     def get_device_info(self) -> Tuple[str, str]:
         """Get device name and info.
-        
+
         Returns:
             Tuple of (device_name, is_reachy)
         """
@@ -244,44 +244,44 @@ class CameraTuner:
         except Exception:
             pass
         return "Unknown", "?"
-    
+
     def confirm_operation(self, operation: str) -> bool:
         """Ask user to confirm operation on current device.
-        
+
         Returns:
             True if confirmed or auto_confirm is enabled
         """
         if self.auto_confirm:
             return True
-        
+
         name, status = self.get_device_info()
         print(f"\n⚠️  About to {operation}")
         print(f"   Device: {self.device}")
         print(f"   Name:   {name}")
         print(f"   Status: {status}")
-        
+
         if "NOT Reachy" in status:
             print("\n❌ WARNING: This does NOT appear to be a Reachy camera!")
-        
+
         try:
             response = input(f"\nProceed? [y/N]: ").strip().lower()
             return response in ('y', 'yes')
         except (KeyboardInterrupt, EOFError):
             print("\nCancelled")
             return False
-    
+
     def backup_params(self) -> bool:
         """Backup current parameters before modification."""
         self._backup_params = self.get_current_params()
         return self._backup_params is not None
-    
+
     def restore_backup(self) -> bool:
         """Restore parameters from backup."""
         if self._backup_params is None:
             print("No backup available")
             return False
         return self.set_params(self._backup_params)
-    
+
     def _run_v4l2_ctl(self, args: List[str]) -> Tuple[bool, str]:
         """Run v4l2-ctl command and return success status and output."""
         cmd = ["v4l2-ctl", "-d", self.device] + args
@@ -302,7 +302,7 @@ class CameraTuner:
             return False, "Command timed out"
         except Exception as e:
             return False, f"Error: {e}"
-    
+
     def get_current_params(self) -> Dict[str, int]:
         """Get current camera parameters."""
         params = {}
@@ -312,7 +312,7 @@ class CameraTuner:
         if not success:
             print(f"Warning: Failed to get parameters: {output}")
             return params
-        
+
         for line in output.strip().split("\n"):
             if ":" in line:
                 key, value = line.strip().split(":", 1)
@@ -322,45 +322,45 @@ class CameraTuner:
                 except ValueError:
                     pass
         return params
-    
+
     def set_params(self, params: Dict[str, int], confirm: bool = True) -> bool:
         """Set camera parameters with optional confirmation."""
         if confirm and not self.auto_confirm:
             if not self.confirm_operation("set parameters"):
                 return False
-        
+
         # Backup before modification
         self.backup_params()
-        
+
         ctrl_str = ",".join([f"{k}={v}" for k, v in params.items()])
         success, output = self._run_v4l2_ctl(["--set-ctrl", ctrl_str])
         if not success:
             print(f"Error setting parameters: {output}")
             return False
         return True
-    
+
     def list_params(self) -> None:
         """List current camera parameters with default values."""
         current = self.get_current_params()
-        
+
         print(f"\n📷 Camera: {self.device}")
         print("-" * 60)
         print(f"{'Parameter':<25} {'Current':<10} {'Default':<10} {'Status'}")
         print("-" * 60)
-        
+
         for param in TUNABLE_PARAMS:
             current_val = current.get(param, "N/A")
             default_val = DEFAULT_VALUES.get(param, "N/A")
-            
+
             if current_val != default_val:
                 status = "🔧 MODIFIED"
             else:
                 status = "✓ default"
-            
+
             print(f"{param:<25} {current_val:<10} {default_val:<10} {status}")
-        
+
         print("-" * 60)
-    
+
     def save_profile(self, name: str, description: str = "") -> bool:
         """Save current camera settings as a profile."""
         params = self.get_current_params()
@@ -370,7 +370,7 @@ class CameraTuner:
             params=params,
             device=self.device,
         )
-        
+
         profile_path = self.profile_dir / f"{name}.json"
         try:
             with open(profile_path, "w") as f:
@@ -380,24 +380,24 @@ class CameraTuner:
         except Exception as e:
             print(f"❌ Failed to save profile: {e}")
             return False
-    
+
     def load_profile(self, name: str) -> bool:
         """Load camera settings from a profile."""
         profile_path = self.profile_dir / f"{name}.json"
-        
+
         if not profile_path.exists():
             print(f"❌ Profile not found: {profile_path}")
             print(f"Available profiles: {self.list_profile_names()}")
             return False
-        
+
         try:
             with open(profile_path, "r") as f:
                 data = json.load(f)
             profile = CameraProfile.from_dict(data)
-            
+
             print(f"📂 Loading profile: {profile.name}")
             print(f"   Description: {profile.description}")
-            
+
             if self.set_params(profile.params):
                 print(f"✅ Profile '{name}' loaded successfully")
                 self.list_params()
@@ -406,15 +406,15 @@ class CameraTuner:
         except Exception as e:
             print(f"❌ Failed to load profile: {e}")
             return False
-    
+
     def list_profiles(self) -> None:
         """List all saved profiles."""
         profiles = list(self.profile_dir.glob("*.json"))
-        
+
         if not profiles:
             print("No saved profiles found.")
             return
-        
+
         print("\n📂 Saved Profiles:")
         print("-" * 60)
         for profile_path in sorted(profiles):
@@ -426,26 +426,26 @@ class CameraTuner:
             except Exception:
                 print(f"  • {profile_path.stem:<15} - (error reading profile)")
         print("-" * 60)
-    
+
     def list_profile_names(self) -> List[str]:
         """Get list of profile names."""
         return [p.stem for p in self.profile_dir.glob("*.json")]
-    
+
     def reset_to_defaults(self, confirm: bool = True) -> bool:
         """Reset all parameters to camera defaults with confirmation."""
         if confirm and not self.confirm_operation("RESET to defaults"):
             return False
-        
+
         print("🔄 Resetting camera to default parameters...")
         # Backup before reset
         self.backup_params()
-        
+
         if self.set_params(DEFAULT_VALUES, confirm=False):
             print("✅ Camera reset to defaults")
             self.list_params()
             return True
         return False
-    
+
     def parse_param_string(self, param_str: str) -> Dict[str, int]:
         """Parse parameter string like 'brightness=10,contrast=15'."""
         params = {}
@@ -460,26 +460,26 @@ class CameraTuner:
             except ValueError:
                 print(f"Warning: Invalid value for {key}: {value}")
         return params
-    
+
     def interactive_tune(self) -> None:
         """Interactive parameter tuning."""
         print("\n🎛️  Interactive Camera Tuning")
         print("Commands: 's' = save, 'l' = load, 'r' = reset, 'q' = quit, 'h' = help")
         print("-" * 60)
-        
+
         while True:
             self.list_params()
-            
+
             try:
                 cmd = input("\nEnter command or 'param=value' (h for help): ").strip()
-                
+
                 if not cmd:
                     continue
-                
+
                 if cmd == "q":
                     print("Exiting...")
                     break
-                
+
                 elif cmd == "h":
                     print("\nCommands:")
                     print("  h              - Show this help")
@@ -490,34 +490,34 @@ class CameraTuner:
                     print("  list           - List saved profiles")
                     print("  param=value    - Set parameter (e.g., brightness=10)")
                     print("\nParameters: " + ", ".join(TUNABLE_PARAMS))
-                
+
                 elif cmd == "r":
                     self.reset_to_defaults()
-                
+
                 elif cmd == "list":
                     self.list_profiles()
-                
+
                 elif cmd.startswith("s "):
                     name = cmd[2:].strip() or "custom"
                     desc = input("Enter description (optional): ").strip()
                     self.save_profile(name, desc)
-                
+
                 elif cmd.startswith("l "):
                     name = cmd[2:].strip()
                     if name:
                         self.load_profile(name)
                     else:
                         self.list_profiles()
-                
+
                 elif "=" in cmd:
                     params = self.parse_param_string(cmd)
                     if params:
                         print(f"Setting: {params}")
                         self.set_params(params)
-                
+
                 else:
                     print(f"Unknown command: {cmd}. Type 'h' for help.")
-            
+
             except KeyboardInterrupt:
                 print("\nExiting...")
                 break
@@ -533,92 +533,92 @@ def main() -> int:
 Examples:
   # List current parameters
   python utils/camera_tuning.py --list
-  
+
   # Save current settings as "default" profile
   python utils/camera_tuning.py --save default
-  
+
   # Adjust specific parameters
   python utils/camera_tuning.py --set brightness=5,contrast=10,saturation=55
-  
+
   # Load a saved profile
   python utils/camera_tuning.py --load indoor
-  
+
   # Reset to camera defaults
   python utils/camera_tuning.py --reset
-  
+
   # Interactive tuning mode
   python utils/camera_tuning.py --interactive
         """
     )
-    
+
     parser.add_argument(
         "--device", "-d",
         default=DEFAULT_DEVICE,
         help=f"Camera device (default: {DEFAULT_DEVICE})"
     )
-    
+
     parser.add_argument(
         "--list", "-l",
         action="store_true",
         help="List current camera parameters"
     )
-    
+
     parser.add_argument(
         "--save", "-s",
         metavar="NAME",
         help="Save current settings as a profile"
     )
-    
+
     parser.add_argument(
         "--load",
         metavar="NAME",
         help="Load settings from a profile"
     )
-    
+
     parser.add_argument(
         "--set",
         metavar="PARAMS",
         help="Set parameters (format: param1=value1,param2=value2)"
     )
-    
+
     parser.add_argument(
         "--reset", "-r",
         action="store_true",
         help="Reset all parameters to defaults"
     )
-    
+
     parser.add_argument(
         "--profiles",
         action="store_true",
         help="List saved profiles"
     )
-    
+
     parser.add_argument(
         "--interactive", "-i",
         action="store_true",
         help="Interactive tuning mode"
     )
-    
+
     parser.add_argument(
         "--desc",
         default="",
         help="Description for saved profile"
     )
-    
+
     parser.add_argument(
         "--yes", "-y",
         action="store_true",
         help="Skip confirmation prompts (use with caution!)"
     )
-    
+
     parser.add_argument(
         "--allow-any-camera", "--force",
         action="store_true",
         help="Allow modification of non-Reachy cameras (DANGEROUS!)"
     )
-    
+
     args = parser.parse_args()
-    
+
     # Auto-detect Reachy camera if using default device
     device = args.device
     if device == DEFAULT_DEVICE:
@@ -639,14 +639,14 @@ Examples:
                 print("Use --device to specify a different camera\n")
             elif len(cameras) == 1:
                 print(f"📷 Found camera: {cameras[0][0]} - {cameras[0][1]}")
-    
+
     # Show device info before proceeding with modifications
     if args.set or args.reset or args.load:
         name, status = get_device_info_direct(device)
         print(f"\n📷 Target device: {device}")
         print(f"   Name: {name}")
         print(f"   Status: {status}")
-        
+
         # STRICT MODE: Reject non-Reachy cameras unless explicitly allowed
         if "NOT Reachy" in status:
             if not args.allow_any_camera:
@@ -657,24 +657,24 @@ Examples:
             else:
                 print("\n⚠️  DANGER: You are about to modify a NON-Reachy camera!")
                 print("   This could break your laptop webcam or other devices.")
-    
+
     tuner = CameraTuner(device=device, auto_confirm=args.yes)
-    
+
     # Default action: list parameters
-    if not any([args.list, args.save, args.load, args.set, args.reset, 
+    if not any([args.list, args.save, args.load, args.set, args.reset,
                 args.profiles, args.interactive]):
         tuner.list_params()
         return 0
-    
+
     if args.list:
         tuner.list_params()
-    
+
     if args.save:
         tuner.save_profile(args.save, args.desc)
-    
+
     if args.load:
         tuner.load_profile(args.load)
-    
+
     if args.set:
         params = tuner.parse_param_string(args.set)
         if params:
@@ -682,16 +682,16 @@ Examples:
             if tuner.set_params(params, confirm=not args.yes):
                 print("✅ Parameters set successfully")
                 tuner.list_params()
-    
+
     if args.reset:
         tuner.reset_to_defaults(confirm=not args.yes)
-    
+
     if args.profiles:
         tuner.list_profiles()
-    
+
     if args.interactive:
         tuner.interactive_tune()
-    
+
     return 0
 
 

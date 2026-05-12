@@ -6,7 +6,7 @@ from .event_bus import EventBus
 
 __all__ = [
     "BaseModeApp",
-    "ModeConfig", 
+    "ModeConfig",
     "RobotRuntime",
     "ReachyRuntime",
     "WebcamRuntime",

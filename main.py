@@ -38,7 +38,7 @@ For mode-specific help:
   python main.py --cheese --help
         """,
     )
-    
+
     # Mode selection group (mutually exclusive)
     mode_group = parser.add_mutually_exclusive_group(required=True)
     mode_group.add_argument(
@@ -61,7 +61,7 @@ For mode-specific help:
         action="store_true",
         help="AI agent mode with tools (placeholder)",
     )
-    
+
     # Global options (all modes)
     global_group = parser.add_argument_group("Global options")
     global_group.add_argument(
@@ -102,16 +102,16 @@ For mode-specific help:
     )
     global_group.add_argument(
         "--gui-backend",
-        choices=["auto", "dpg", "cv2", "none"],
-        default="auto",
-        help="GUI backend (default: auto)",
+        choices=["cv2", "none"],
+        default="cv2",
+        help="GUI backend: cv2=window display, none=headless (default: cv2)",
     )
     global_group.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug output",
     )
-    
+
     # ASR options
     asr_group = parser.add_argument_group("ASR options")
     asr_group.add_argument(
@@ -133,7 +133,7 @@ For mode-specific help:
         default=1,
         help="VAD aggressiveness (default: 1)",
     )
-    
+
     # TTS options
     tts_group = parser.add_argument_group("TTS options")
     tts_group.add_argument(
@@ -152,7 +152,7 @@ For mode-specific help:
         default=0,
         help="Speaker ID for multi-speaker models (default: 0)",
     )
-    
+
     # Cheese mode options
     cheese_group = parser.add_argument_group("Cheese mode options")
     cheese_group.add_argument(
@@ -172,7 +172,7 @@ For mode-specific help:
         default=12.0,
         help="Command timeout in seconds (default: 12)",
     )
-    
+
     # Guard mode options (placeholder)
     guard_group = parser.add_argument_group("Guard mode options (placeholder)")
     guard_group.add_argument(
@@ -186,7 +186,7 @@ For mode-specific help:
         default="gemma4-e2b",
         help="Vision model to use",
     )
-    
+
     # Chat mode options (placeholder)
     chat_group = parser.add_argument_group("Chat mode options (placeholder)")
     chat_group.add_argument(
@@ -205,7 +205,7 @@ For mode-specific help:
         default=5,
         help="Conversation history size",
     )
-    
+
     # Agent mode options (placeholder)
     agent_group = parser.add_argument_group("Agent mode options (placeholder)")
     agent_group.add_argument(
@@ -218,19 +218,19 @@ For mode-specific help:
         default="qwen3:0.6b",
         help="LLM for agent",
     )
-    
+
     return parser
 
 
 def build_config(args) -> tuple:
     """Build mode-specific config from arguments.
-    
+
     Returns:
         (mode_name, config_object)
     """
     from modes.cheese.config import CheeseConfig
     from core.base_app import ModeConfig
-    
+
     # Determine mode
     if args.cheese:
         mode = "cheese"
@@ -320,7 +320,7 @@ def build_config(args) -> tuple:
         }
     else:
         raise ValueError("No mode selected")
-    
+
     return mode, config
 
 
@@ -328,23 +328,23 @@ def main() -> int:
     """Main entry point."""
     parser = create_parser()
     args = parser.parse_args()
-    
+
     # Build config
     try:
         mode_name, config = build_config(args)
     except Exception as e:
         print(f"❌ Config error: {e}")
         return 1
-    
+
     # Import and run mode
     try:
         from modes import get_mode
-        
+
         ModeClass = get_mode(mode_name)
         app = ModeClass(config)
         app.run()
         return 0
-        
+
     except NotImplementedError as e:
         import sys
         print(str(e), flush=True)

@@ -12,17 +12,17 @@ from core.base_app import BaseModeApp, ModeConfig
 
 class AgentModeApp(BaseModeApp):
     """Agent mode placeholder - voice-controlled AI agent.
-    
+
     This mode will provide:
     - Tool-using LLM agent (via OpenClaw or similar)
     - Desktop control capabilities
     - Multi-step task planning and execution
     - Extensible tool registry
     """
-    
+
     def get_mode_name(self) -> str:
         return "agent"
-    
+
     def get_requirements(self) -> list:
         return [
             "numpy",
@@ -35,7 +35,7 @@ class AgentModeApp(BaseModeApp):
             "requests",
             # "openclaw",  # Future dependency
         ]
-    
+
     def setup(self) -> None:
         """Placeholder - not yet implemented."""
         raise NotImplementedError(
@@ -52,9 +52,9 @@ class AgentModeApp(BaseModeApp):
             "║    python main.py --agent --tools config/tools.yaml          ║\n"
             "╚══════════════════════════════════════════════════════════════╝\n"
         )
-    
+
     def run_frame(self, frame) -> bool:
         return False
-    
+
     def cleanup(self) -> None:
         pass

@@ -4,7 +4,7 @@
 
 - **🧀 Cheese Mode**: Voice photo capture with face tracking
 - **🔒 Guard Mode**: Multi-modal security monitoring (placeholder, TODO)
-- **💬 Chat Mode**: Voice conversation with LLM (placeholder, TODO)  
+- **💬 Chat Mode**: Voice conversation with LLM (placeholder, TODO)
 - **🤖 Agent Mode**: AI agent with tools (placeholder, TODO)
 
 ![Demo](./assets/ReachyMiniChat.png)

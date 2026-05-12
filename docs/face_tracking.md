@@ -586,7 +586,7 @@ sudo usbreset 001/005
 | 优化图像质量 | Reachy | Camera Tuning |
 | 保存多个场景 | Reachy | 配置文件 + `--camera-profile` |
 
-**核心原则**: 
+**核心原则**:
 - Webcam 仅用于快速验证逻辑，**不能**用于测试人脸跟踪效果
 - Reachy 模式必须配合 Camera Tuning 才能获得最佳图像质量
 - 始终使用 `--camera-profile` 保存和加载优化后的参数

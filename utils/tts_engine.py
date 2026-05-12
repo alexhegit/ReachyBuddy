@@ -1,3 +1,4 @@
+import time
 """Piper-TTS engine wrapper for offline speech synthesis."""
 
 import os
@@ -153,27 +154,27 @@ class PiperTTSEngine:
 
     def synthesize_to_buffer(self, text: str) -> Optional[Tuple[np.ndarray, int]]:
         """Synthesize text to audio buffer without playing.
-        
+
         Returns:
             Tuple of (audio_data, sample_rate) or None if failed
         """
         if not text.strip() or not self.voice:
             return None
-        
+
         tmp_path = None
         try:
             with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
                 tmp_path = tmp.name
-            
+
             with wave.open(tmp_path, "wb") as wav_file:
                 syn_config = None
                 if self.SynthesisConfig and self.speaker_id is not None:
                     syn_config = self.SynthesisConfig(speaker_id=self.speaker_id)
                 self.voice.synthesize_wav(text, wav_file, syn_config=syn_config)
-            
+
             data, sr = sf.read(tmp_path, dtype='float32')
             return (data, sr) if data.size > 0 else None
-            
+
         except Exception as e:
             if self.debug:
                 print(f"⚠️ Synthesis error: {e}")
