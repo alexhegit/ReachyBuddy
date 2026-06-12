@@ -109,7 +109,8 @@ class RobotRuntime:
 
     def look_at_image(self, x: int, y: int, duration: float = 0.2,
                        frame_width: int = 640, frame_height: int = 480,
-                       pan_gain: float = 0.3, tilt_gain: float = 0.2) -> None:
+                       pan_gain: float = 0.3, tilt_gain: float = 0.2,
+                       pan_invert: bool = False) -> None:
         """Make robot look at image coordinates."""
         raise NotImplementedError
 
@@ -263,34 +264,25 @@ class ReachyRuntime(RobotRuntime):
 
     def look_at_image(self, x: int, y: int, duration: float = 0.2,
                        frame_width: int = 640, frame_height: int = 480,
-                       pan_gain: float = 0.3, tilt_gain: float = 0.2) -> None:
+                       pan_gain: float = 0.3, tilt_gain: float = 0.2,
+                       pan_invert: bool = False) -> None:
         """Make Reachy look at image coordinates.
 
-        Tries to use the high-level SDK method if present; otherwise falls back to a
-        simple mapping from image pixel coordinates to head pan/tilt and calls
-        goto_target(head=pose).
+        Maps pixel coordinates to head pan/tilt and calls
+        goto_target(head=pose).  Always uses the manual fallback mapping
+        (the SDK's built-in look_at_image tries to access camera media
+        which is None in --no-media daemon mode).
         """
         if not self._reachy:
             return
 
-        # Prefer SDK high-level helper if available
-        try:
-            if hasattr(self._reachy, "look_at_image"):
-                self._reachy.look_at_image(x, y, duration=duration)
-                return
-        except Exception as e:
-            # Fall back to manual mapping
-            print(f"⚠️ reachy.look_at_image failed, falling back: {e}")
-
-        # Fallback: compute pan/tilt from image coordinates.
-        # The caller (FaceAligner) already knows the actual frame dimensions —
-        # we use those directly instead of trying to pull a frame from SDK media,
-        # which is None in --no-media mode.
         w, h = frame_width, frame_height
         nx = (x - (w / 2.0)) / (w / 2.0)
         ny = (y - (h / 2.0)) / (h / 2.0)
 
-        pan = float(-nx * pan_gain)
+        pan = float(nx * pan_gain)
+        if pan_invert:
+            pan = -pan
         tilt = float(ny * tilt_gain)
 
         try:
@@ -363,7 +355,7 @@ class WebcamRuntime(RobotRuntime):
             return None
         # Camera may ignore the 640x480 set() call (e.g. Reachy MJPG only
         # supports 1920x1080+).  Resize to a consistent resolution so all
-        # pixel-based parameters (cmd_max_step, deadzone, etc.) behave as
+        # pixel-based parameters (deadzone, etc.) behave as
         # designed regardless of the camera's native output.
         if frame.shape[1] != 640 or frame.shape[0] != 480:
             frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_LINEAR)
@@ -371,7 +363,8 @@ class WebcamRuntime(RobotRuntime):
 
     def look_at_image(self, x: int, y: int, duration: float = 0.2,
                        frame_width: int = 640, frame_height: int = 480,
-                       pan_gain: float = 0.3, tilt_gain: float = 0.2) -> None:
+                       pan_gain: float = 0.3, tilt_gain: float = 0.2,
+                       pan_invert: bool = False) -> None:
         pass
 
     def goto_body_yaw(self, yaw: float, duration: float = 0.35) -> None:

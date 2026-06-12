@@ -193,6 +193,15 @@ For mode-specific help:
         help="Enable/disable robot head/body tracking (default: on)",
     )
 
+    cheese_group.add_argument(
+        "--pan-invert",
+        "--no-pan-invert",
+        dest="pan_invert",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Invert head pan direction",
+    )
+
     # Guard mode options (placeholder)
     guard_group = parser.add_argument_group("Guard mode options (placeholder)")
     guard_group.add_argument(
@@ -275,6 +284,7 @@ def build_config(args) -> tuple:
             track_enabled=args.track,
             reachy_host=args.reachy_host,
             reachy_port=args.reachy_port,
+            pan_invert=args.pan_invert,
         )
     elif args.guard:
         mode = "guard"

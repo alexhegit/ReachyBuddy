@@ -22,51 +22,57 @@ class CheeseConfig(ModeConfig):
     min_detection_confidence: float = 0.50
     smooth_factor: float = 0.20
 
-    # Alignment thresholds
-    deadzone_x: int = 25
-    deadzone_y: int = 20
-    stable_needed: int = 10
-
-    # FaceAligner control parameters
-    # Tuned for smooth, gradual convergence: smaller steps, slower moves,
-    # lower frequency, and heavier EMA smoothing.
+    # Hierarchical tracking control
+    #
+    # Two layers:
+    #   COARSE (body yaw) — large horizontal errors, slow 0.8s interval.
+    #     Body rotates to bring face into the head's tracking range.
+    #     Head does NOT reset after body move — it keeps tracking through
+    #     the rotation so the face is never lost.
+    #   FINE (head pan/tilt) — residual errors, fast 0.4s interval.
+    #     Head handles fine horizontal centering + vertical alignment.
+    #
+    # Alignment (ARMED state) is determined by the fine deadzone only.
     #
     # Signal chain:
     #   FaceAligner: ema_dx * head_gain_x → target_x (pixel offset)
     #   Fallback: (target_x - center)/(w/2) * pan_gain → pan (radians)
     #   Effective gain = head_gain_x * pan_gain / (w/2)
-    # Move intervals are kept >= corresponding head durations so each
-    # movement completes before the next command is sent (no overlap).
-    lock_hold_x: int = 35
-    lock_hold_y: int = 28
-    release_x: int = 45
-    release_y: int = 35
-    reacquire_x: int = 130
-    reacquire_y: int = 110
-    cmd_max_step_x: int = 60
-    cmd_max_step_y: int = 50
-    min_cmd_delta_px: int = 24
-    max_body_yaw: float = 0.8
-    ema_alpha: float = 0.20
-    body_step: float = 0.08
-    body_duration: float = 0.60
-    head_reset_duration: float = 0.28
-    body_cooldown: float = 0.6
-    settle_duration: float = 0.35
-    move_interval_soft: float = 0.60
-    move_interval_reacquire: float = 0.50
-    move_interval_normal: float = 0.50
-    head_gain_x: float = 0.35
-    head_gain_y: float = 0.35
-    head_duration_soft: float = 0.50
-    head_duration_normal: float = 0.40
-    big_error_delay_reacquire: float = 0.35
-    big_error_delay_normal: float = 0.5
+    #
+    # Fine deadzone (for ARMED transition)
+    deadzone_x: int = 30
+    deadzone_y: int = 25
+    stable_needed: int = 10
 
-    # Fallback look_at_image gains (used when SDK media is unavailable).
+    # Head tracking: proportional gain from pixel error.
+    # With gain=1.5 and 60° HFOV, head nearly tracks face 1:1.
+    head_gain_x: float = 1.5
+    head_gain_y: float = 1.0
+
+    # Head movement intervals
+    head_interval: float = 0.25
+    head_duration_normal: float = 0.30
+    head_duration_soft: float = 0.40
+
+    # Body-follows-head: when the head looks beyond this offset (px)
+    # the body rotates to recenter the head.
+    body_follow_threshold_px: int = 150
+    body_max_step: float = 0.20   # rad per body movement
+    body_duration: float = 0.60
+    body_interval: float = 1.0
+    max_body_yaw: float = 0.8
+
+    ema_alpha: float = 0.25
+
+    # Head deadzone (hysteresis for lock release)
+    head_deadzone_x: int = 40
+    head_deadzone_y: int = 30
+
+    # Fallback look_at_image gains
     # Normalised pixel offset → radians: pan = nx * pan_gain, tilt = ny * tilt_gain
     pan_gain: float = 0.40
     tilt_gain: float = 0.35
+    pan_invert: bool = False
 
     # Camera profile for hardware parameter tuning (reachy mode only)
     camera_profile: Optional[str] = None

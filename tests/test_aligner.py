@@ -99,23 +99,18 @@ class TestFaceAlignerHeadingMoving:
     def test_body_move_triggers_for_large_error(self, aligner, mock_runtime):
         """Large deviation should trigger body yaw command."""
         aligner._tracker.detect = MagicMock(return_value=(0, 200, 80, 80))
-        dx = 0 + 40 - 320  # = -280 (far left)
-        assert abs(dx) > 70
-        # Run multiple updates to trigger the time-based logic
-        for _ in range(3):
-            aligner.update(mock_runtime, make_frame(320, 240))
-            if aligner._big_error_since > 0:
-                break
-        assert aligner._big_error_since > 0
+        aligner._last_body_at = 0.0  # Force immediate body move
+        aligner.update(mock_runtime, make_frame(320, 240))
+        # After one update with ema smoothing (alpha=1), the body timer advances
+        assert aligner._last_body_at > 0
 
-    def test_head_move_triggers_when_in_deadzone_but_outside_release(self, aligner,
-                                                                       mock_runtime):
-        """Small-medium error should trigger head movement."""
-        # dx = 40 which is > deadzone (25) but < body threshold (70)
-        aligner._tracker.detect = MagicMock(
-            return_value=(360, 240, 80, 80))
-        aligner._last_track_at = 0.0  # Force movement
+    def test_head_move_triggers_when_outside_fine_deadzone(self, aligner,
+                                                             mock_runtime):
+        """Error > fine deadzone should trigger head movement."""
+        # Face at (360, 240) → cx = 360+40 = 400, dx = 400-320 = 80
+        # > head_deadzone_x=25 → need_head=True
+        aligner._tracker.detect = MagicMock(return_value=(360, 240, 80, 80))
+        aligner._last_head_at = 0.0  # Force immediate head move
         status = aligner.update(mock_runtime, make_frame(320, 240))
         assert status["has_face"]
-        # Should NOT be aligned (dx=40 > deadzone=25)
         assert not status["aligned"]

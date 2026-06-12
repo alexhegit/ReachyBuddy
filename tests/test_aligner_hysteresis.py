@@ -11,8 +11,7 @@ from modes.cheese.config import CheeseConfig
 def config():
     return CheeseConfig(
         deadzone_x=25, deadzone_y=20, stable_needed=5,
-        lock_hold_x=35, lock_hold_y=28,
-        release_x=45, release_y=35,
+        head_deadzone_x=35, head_deadzone_y=28,
         ema_alpha=1.0,
     )
 
