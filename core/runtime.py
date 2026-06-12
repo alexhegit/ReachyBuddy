@@ -107,7 +107,8 @@ class RobotRuntime:
         """Get current camera frame."""
         raise NotImplementedError
 
-    def look_at_image(self, x: int, y: int, duration: float = 0.2) -> None:
+    def look_at_image(self, x: int, y: int, duration: float = 0.2,
+                       frame_width: int = 640, frame_height: int = 480) -> None:
         """Make robot look at image coordinates."""
         raise NotImplementedError
 
@@ -175,10 +176,27 @@ def load_camera_profile(profile_name: str, device: Optional[str] = None) -> bool
 class ReachyRuntime(RobotRuntime):
     """Runtime for physical Reachy Mini robot."""
 
-    def __init__(self, camera_profile: Optional[str] = None):
+    def __init__(self, camera_profile: Optional[str] = None, host: Optional[str] = None, port: Optional[int] = None):
         self._ctx = None
         self._reachy = None
         self._camera_profile = camera_profile
+        # Host/port for Reachy daemon connection (defaults handled by ReachyMini)
+        self._host = host
+        self._port = port
+
+    @staticmethod
+    def _normalize_host(host: Optional[str]) -> Optional[str]:
+        """Normalize common daemon host inputs for client use."""
+        if host == "0.0.0.0":
+            return "127.0.0.1"
+        return host
+
+    @staticmethod
+    def _connection_mode_for_host(host: Optional[str]) -> str:
+        """Select ReachyMini connection mode based on the target host."""
+        if host in (None, "localhost", "127.0.0.1", "::1"):
+            return "localhost_only"
+        return "network"
 
     def __enter__(self):
         if ReachyMini is None:
@@ -196,7 +214,39 @@ class ReachyRuntime(RobotRuntime):
             else:
                 print(f"⚠️ Failed to load camera profile: {self._camera_profile}")
 
-        self._ctx = ReachyMini(media_backend="default")
+        # Try to initialize Reachy with media backend. If media backend fails
+        # (e.g., WebRTC server not running), fall back to a no-media backend so
+        # robot control is still available.
+        normalized_host = self._normalize_host(self._host)
+        connection_mode = self._connection_mode_for_host(normalized_host)
+        print(
+            f"🔌 Connecting to Reachy daemon at {normalized_host or 'reachy-mini.local'}:"
+            f"{self._port or 8000} ({connection_mode})"
+        )
+        try:
+            # Pass host/port to ReachyMini when provided so remote daemons are reachable
+            kwargs = {}
+            if normalized_host is not None:
+                kwargs["host"] = normalized_host
+            if self._port is not None:
+                kwargs["port"] = self._port
+            kwargs["connection_mode"] = connection_mode
+            self._ctx = ReachyMini(media_backend="default", **kwargs)
+        except Exception as exc:
+            print(f"⚠️ reachy_mini init with media backend failed: {exc}")
+            print("   ↪ Retrying with media_backend='no_media' to enable control-only mode")
+            try:
+                kwargs = {}
+                if normalized_host is not None:
+                    kwargs["host"] = normalized_host
+                if self._port is not None:
+                    kwargs["port"] = self._port
+                kwargs["connection_mode"] = connection_mode
+                self._ctx = ReachyMini(media_backend="no_media", **kwargs)
+            except Exception as exc2:
+                print(f"❌ reachy_mini init failed (no-media fallback): {exc2}")
+                raise
+
         self._reachy = self._ctx.__enter__()
         return self
 
@@ -210,9 +260,49 @@ class ReachyRuntime(RobotRuntime):
             return self._reachy.media.get_frame()
         return None
 
-    def look_at_image(self, x: int, y: int, duration: float = 0.2) -> None:
-        if self._reachy:
-            self._reachy.look_at_image(x, y, duration=duration)
+    def look_at_image(self, x: int, y: int, duration: float = 0.2,
+                       frame_width: int = 640, frame_height: int = 480) -> None:
+        """Make Reachy look at image coordinates.
+
+        Tries to use the high-level SDK method if present; otherwise falls back to a
+        simple mapping from image pixel coordinates to head pan/tilt and calls
+        goto_target(head=pose).
+        """
+        if not self._reachy:
+            return
+
+        # Prefer SDK high-level helper if available
+        try:
+            if hasattr(self._reachy, "look_at_image"):
+                self._reachy.look_at_image(x, y, duration=duration)
+                return
+        except Exception as e:
+            # Fall back to manual mapping
+            print(f"⚠️ reachy.look_at_image failed, falling back: {e}")
+
+        # Fallback: compute pan/tilt from image coordinates.
+        # The caller (FaceAligner) already knows the actual frame dimensions —
+        # we use those directly instead of trying to pull a frame from SDK media,
+        # which is None in --no-media mode.
+        w, h = frame_width, frame_height
+        nx = (x - (w / 2.0)) / (w / 2.0)
+        ny = (y - (h / 2.0)) / (h / 2.0)
+
+        pan_gain = 0.6
+        tilt_gain = 0.35
+        pan = float(-nx * pan_gain)
+        tilt = float(ny * tilt_gain)
+
+        try:
+            pose = create_head_pose(pan=pan, tilt=tilt)
+        except TypeError:
+            try:
+                pose = create_head_pose(pan, tilt)
+            except Exception:
+                pose = None
+
+        if pose is not None:
+            self._reachy.goto_target(head=pose, duration=duration)
 
     def goto_body_yaw(self, yaw: float, duration: float = 0.35) -> None:
         if self._reachy:
@@ -241,14 +331,20 @@ class WebcamRuntime(RobotRuntime):
     def __enter__(self):
         # Use device path if provided, otherwise use index
         if self._device_path:
-            self._cap = cv2.VideoCapture(self._device_path)
+            self._cap = cv2.VideoCapture(self._device_path, cv2.CAP_V4L2)
             device_str = self._device_path
         else:
-            self._cap = cv2.VideoCapture(self._camera_index)
+            self._cap = cv2.VideoCapture(self._camera_index, cv2.CAP_V4L2)
             device_str = f"index {self._camera_index}"
 
         if not self._cap.isOpened():
             raise RuntimeError(f"Cannot open webcam {device_str}")
+
+        # Prefer MJPG (Motion-JPEG) format — YUYV raw often yields black/dark frames
+        # on cameras without hardware ISP (e.g., Reachy Mini Camera).
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        self._cap.set(cv2.CAP_PROP_FOURCC, fourcc)
+
         # Set resolution for better performance
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
@@ -267,8 +363,8 @@ class WebcamRuntime(RobotRuntime):
             return None
         return frame
 
-    def look_at_image(self, x: int, y: int, duration: float = 0.2) -> None:
-        # No-op for webcam
+    def look_at_image(self, x: int, y: int, duration: float = 0.2,
+                       frame_width: int = 640, frame_height: int = 480) -> None:
         pass
 
     def goto_body_yaw(self, yaw: float, duration: float = 0.35) -> None:
@@ -288,7 +384,9 @@ def create_runtime(
     camera_source: str,
     camera_index: int = 0,
     camera_profile: Optional[str] = None,
-    reachy_device_path: Optional[str] = None
+    reachy_device_path: Optional[str] = None,
+    reachy_host: Optional[str] = None,
+    reachy_port: Optional[int] = None,
 ) -> RobotRuntime:
     """Factory function to create appropriate runtime.
 
@@ -299,6 +397,6 @@ def create_runtime(
         reachy_device_path: Device path for Reachy camera (e.g., '/dev/video4')
     """
     if camera_source == "reachy":
-        return ReachyRuntime(camera_profile=camera_profile)
+        return ReachyRuntime(camera_profile=camera_profile, host=reachy_host, port=reachy_port)
     else:
         return WebcamRuntime(camera_index, device_path=reachy_device_path)

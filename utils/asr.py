@@ -14,6 +14,7 @@ from __future__ import annotations
 import tempfile
 import os
 import time
+import threading
 from typing import Optional
 
 import numpy as np
@@ -48,11 +49,10 @@ class FasterWhisperASREngine:
 
     def configure_for_latency(self):
         """Configure for optimal latency (smaller model, faster processing)"""
-        # Use tiny model for faster processing
-        self.model_name = "tiny"
-        self.beam_size = 1  # Smaller beam size for faster decoding
-        # Note: In practice, you'd need to reload the model
-        # For simplicity in this example, we'll just update settings
+        if self.model_name != "tiny":
+            self.model_name = "tiny"
+            self.beam_size = 1
+            self.model = WhisperModel(self.model_name, device=self.device)
 
     def transcribe_file(self, path: str) -> str:
         if not os.path.exists(path):
@@ -168,7 +168,8 @@ class FasterWhisperASREngine:
     def _record_temp_wav_vad(self, max_duration: float = 5.0, samplerate: int = 16000,
                               silence_threshold: float = 2.0, aggressiveness: int = 1,
                               trailing_buffer_ms: float = 300,
-                              show_volume: bool = True) -> str:
+                              show_volume: bool = True,
+                              stop_event: threading.Event | None = None) -> str:
         """Record using Voice Activity Detection (VAD) - stops when speech ends.
 
         Args:
@@ -213,6 +214,11 @@ class FasterWhisperASREngine:
             stream.start()
 
             while (time.time() - start_time) < max_duration:
+                if stop_event is not None and stop_event.is_set():
+                    if show_volume:
+                        print()
+                    print("🔇 Recording cancelled by stop event")
+                    break
                 data, _ = stream.read(frame_samples)
                 if data is None:
                     break
@@ -300,7 +306,8 @@ class FasterWhisperASREngine:
     def transcribe_from_mic_vad(self, max_duration: float = 5.0, samplerate: int = 16000,
                                  silence_threshold: float = 2.0, aggressiveness: int = 1,
                                  trailing_buffer_ms: float = 300,
-                                 show_volume: bool = True) -> Optional[str]:
+                                 show_volume: bool = True,
+                                 stop_event: threading.Event | None = None) -> Optional[str]:
         """Record from mic using VAD then transcribe; returns the transcribed text or None.
 
         Args:
@@ -310,11 +317,15 @@ class FasterWhisperASREngine:
             aggressiveness: VAD aggressiveness 0-3 (1=least aggressive/recommended, 3=most aggressive)
             trailing_buffer_ms: Keep this many ms of audio before silence for better transcription
             show_volume: Whether to show real-time volume visualization
+            stop_event: Optional event that, when set, cancels the recording early
         """
         wav_path = None
         try:
             wav_path = self._record_temp_wav_vad(max_duration, samplerate, silence_threshold,
-                                                  aggressiveness, trailing_buffer_ms, show_volume)
+                                                  aggressiveness, trailing_buffer_ms, show_volume,
+                                                  stop_event=stop_event)
+            if not wav_path:
+                return None
             text = self.transcribe_file(wav_path)
             return text
         finally:

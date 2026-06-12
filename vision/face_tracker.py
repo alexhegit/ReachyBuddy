@@ -200,6 +200,9 @@ class FaceTracker:
                 if area > max_area:
                     max_area = area
                     largest = det
+            # If all detections have zero area, return first detection instead of None
+            if largest is None and detections:
+                largest = detections[0]
             return largest
 
         elif self.multi_face_strategy == "center":

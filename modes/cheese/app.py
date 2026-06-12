@@ -14,6 +14,7 @@ import queue
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -51,28 +52,29 @@ class FaceAligner:
             min_detection_confidence=config.min_detection_confidence,
         )
 
-        # Thresholds
+        # Thresholds (from config)
         self._deadzone_x = config.deadzone_x
         self._deadzone_y = config.deadzone_y
-        self._lock_hold_x = 35
-        self._lock_hold_y = 28
-        self._release_x = 45
-        self._release_y = 35
+        self._lock_hold_x = config.lock_hold_x
+        self._lock_hold_y = config.lock_hold_y
+        self._release_x = config.release_x
+        self._release_y = config.release_y
         self._stable_needed = config.stable_needed
-        self._reacquire_x = 170
-        self._reacquire_y = 130
+        self._reacquire_x = config.reacquire_x
+        self._reacquire_y = config.reacquire_y
 
         # Command limits
-        self._cmd_max_step_x = 95
-        self._cmd_max_step_y = 70
-        self._min_cmd_delta_px = 24
-        self._max_body_yaw = 0.8
+        self._cmd_max_step_x = config.cmd_max_step_x
+        self._cmd_max_step_y = config.cmd_max_step_y
+        self._min_cmd_delta_px = config.min_cmd_delta_px
+        self._max_body_yaw = config.max_body_yaw
 
         # Internal state
         self._stable_frames = 0
         self._ema_dx = 0.0
         self._ema_dy = 0.0
-        self._alpha = 0.30
+        self._alpha = config.ema_alpha
+        self._cfg = config
         self._last_track_at = 0.0
         self._big_error_since = 0.0
         self._body_yaw = 0.0
@@ -157,7 +159,7 @@ class FaceAligner:
         # Control timing
         now = time.time()
         in_reacquire = abs(self._ema_dx) > self._reacquire_x or abs(self._ema_dy) > self._reacquire_y
-        move_interval = 0.28 if soft else (0.22 if in_reacquire else 0.16)
+        move_interval = self._cfg.move_interval_soft if soft else (self._cfg.move_interval_reacquire if in_reacquire else self._cfg.move_interval_normal)
         need_move = abs(self._ema_dx) > self._release_x or abs(self._ema_dy) > self._release_y
 
         # During settle period, don't move
@@ -178,39 +180,50 @@ class FaceAligner:
             did_body_move = False
 
             # BODY COMPENSATION (outer loop): Large deviation -> move body
+            # BODY COMPENSATION (outer loop): Large deviation -> move body
+            # Lower thresholds and slightly stronger steps to improve responsiveness
             if (need_move and not self._locked and
-                abs(self._ema_dx) > 110 and now >= self._body_cooldown_until):
+                abs(self._ema_dx) > 70 and now >= self._body_cooldown_until):
 
                 if self._big_error_since == 0.0:
                     self._big_error_since = now
-                elif now - self._big_error_since > (0.5 if in_reacquire else 0.7):
-                    step = 0.09 if self._ema_dx > 0 else -0.09
-                    self._body_yaw = max(-self._max_body_yaw,
-                                         min(self._max_body_yaw, self._body_yaw + step))
+                elif now - self._big_error_since > (self._cfg.big_error_delay_reacquire if in_reacquire else self._cfg.big_error_delay_normal):
+                    step = self._cfg.body_step if self._ema_dx > 0 else -self._cfg.body_step
+                    target_body_yaw = max(
+                        -self._max_body_yaw,
+                        min(self._max_body_yaw, self._body_yaw + step),
+                    )
                     try:
-                        if runtime:
-                            runtime.goto_body_yaw(self._body_yaw, duration=0.42)
-                            runtime.reset_head(duration=0.28)
+                        if runtime is not None:
                             if self._debug:
-                                print(f"   🔄 Body yaw: {self._body_yaw:.2f}")
+                                print(
+                                    f"   🔄 Requesting body yaw: {target_body_yaw:.2f} "
+                                    f"(step={step:.2f})"
+                                )
+                            runtime.goto_body_yaw(target_body_yaw, duration=self._cfg.body_duration)
+                            runtime.reset_head(duration=self._cfg.head_reset_duration)
+                            self._body_yaw = target_body_yaw
+                            self._big_error_since = 0.0
+                            self._body_cooldown_until = now + self._cfg.body_cooldown
+                            self._settle_until = now + self._cfg.settle_duration
+                            self._last_cmd_center = None
+                            did_body_move = True
+                            if self._debug:
+                                print(f"   ✅ Body yaw commanded: {self._body_yaw:.2f}")
+                        elif self._debug:
+                            print("   ⚠️ Body move skipped: no robot runtime available")
                     except Exception as e:
                         if self._debug:
                             print(f"   ⚠️ Body move error: {e}")
-
-                    self._big_error_since = 0.0
-                    self._body_cooldown_until = now + 0.9
-                    self._settle_until = now + 0.45
-                    self._last_cmd_center = None
-                    did_body_move = True
             else:
                 self._big_error_since = 0.0
 
             # HEAD CONTROL (inner loop): Small adjustments
             if need_move and not self._locked and not did_body_move:
                 target_x = frame_w // 2 + int(np.clip(
-                    self._ema_dx * 0.55, -self._cmd_max_step_x, self._cmd_max_step_x))
+                    self._ema_dx * self._cfg.head_gain_x, -self._cmd_max_step_x, self._cmd_max_step_x))
                 target_y = frame_h // 2 + int(np.clip(
-                    self._ema_dy * 0.50, -self._cmd_max_step_y, self._cmd_max_step_y))
+                    self._ema_dy * self._cfg.head_gain_y, -self._cmd_max_step_y, self._cmd_max_step_y))
 
                 # Check if command changed enough
                 should_send = True
@@ -222,10 +235,11 @@ class FaceAligner:
 
                 if should_send and runtime is not None:
                         try:
-                            duration = 0.34 if (soft or in_reacquire) else 0.24
+                            duration = self._cfg.head_duration_soft if (soft or in_reacquire) else self._cfg.head_duration_normal
                             if self._debug:
                                 print(f"   👁️  Calling look_at_image({target_x}, {target_y}, duration={duration})")
-                            runtime.look_at_image(target_x, target_y, duration=duration)
+                            runtime.look_at_image(target_x, target_y, duration=duration,
+                                                   frame_width=frame_w, frame_height=frame_h)
                             if self._debug:
                                 print(f"   ✅ Head moved to ({target_x}, {target_y})")
                             self._last_cmd_center = (target_x, target_y)
@@ -237,6 +251,14 @@ class FaceAligner:
 
             if not need_move:
                 self._last_cmd_center = None
+
+        if self._debug:
+            print(
+                f"   [align] has_face=True dx={self._ema_dx:+.1f} dy={self._ema_dy:+.1f} "
+                f"aligned={aligned} stable={self._stable_frames} locked={self._locked} "
+                f"need_move={need_move} in_reacquire={in_reacquire} big_since={self._big_error_since:.2f} "
+                f"last_cmd={self._last_cmd_center} body_yaw={self._body_yaw:.2f}"
+            )
 
         return {
             "has_face": True,
@@ -276,12 +298,14 @@ class VoiceIO:
     def close(self) -> None:
         """Cleanup voice resources."""
         self._speak_running = False
+        # Drain the queue
         while not self._speak_queue.empty():
             try:
                 self._speak_queue.get_nowait()
             except queue.Empty:
                 break
-        self._speak_queue.put("")
+        # Sentinel must not be falsy — use None so consumer can distinguish
+        self._speak_queue.put(None)
         self._speak_thread.join(timeout=2.0)
 
         if self._tts:
@@ -305,8 +329,8 @@ class VoiceIO:
         """Background speech thread."""
         while self._speak_running:
             text = self._speak_queue.get()
-            if not text:
-                continue
+            if text is None:
+                break
             try:
                 if self._tts and getattr(self._tts, "voice", None):
                     self._tts.speak_with_emotion(text, "neutral")
@@ -320,7 +344,7 @@ class VoiceIO:
         if text.strip():
             self._speak_queue.put(text.strip())
 
-    def listen(self) -> str:
+    def listen(self, stop_event: threading.Event | None = None) -> str:
         """Listen for voice input."""
         try:
             text = self._asr.transcribe_from_mic_vad(
@@ -329,6 +353,7 @@ class VoiceIO:
                 aggressiveness=self.cfg.vad_aggressive,
                 trailing_buffer_ms=400,
                 show_volume=self.cfg.debug,  # Show volume bar in debug mode
+                stop_event=stop_event,
             )
             return (text or "").strip().lower()
         except Exception:
@@ -347,6 +372,7 @@ class CheeseModeApp(BaseModeApp):
 
         # State machine
         self._armed_since = 0.0
+        self._tracking_no_face_since = 0.0
         self._last_frame: Optional[np.ndarray] = None
         self._last_saved_path = ""
 
@@ -361,10 +387,14 @@ class CheeseModeApp(BaseModeApp):
             (3.2, "Cheese"),
         ]
 
+        # Background executor for disk I/O (photo saving, etc.)
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
         # Voice listener
         self._asr_queue: "queue.Queue[str]" = queue.Queue()
         self._listener_running = False
         self._listener_thread: Optional[threading.Thread] = None
+        self._listener_stop = threading.Event()
 
     def get_mode_name(self) -> str:
         return "cheese"
@@ -397,30 +427,94 @@ class CheeseModeApp(BaseModeApp):
         self.runtime = create_runtime(
             self.cfg.camera_source,
             self.cfg.camera_index,
-            camera_profile=self.cfg.camera_profile if self.cfg.camera_source == "reachy" else None
+            camera_profile=self.cfg.camera_profile if self.cfg.camera_source == "reachy" else None,
+            reachy_host=self.cfg.reachy_host if hasattr(self.cfg, 'reachy_host') else None,
+            reachy_port=self.cfg.reachy_port if hasattr(self.cfg, 'reachy_port') else None,
         )
-        try:
-            self.runtime.__enter__()
-        except Exception as exc:
-            if self.cfg.camera_source == "reachy":
-                print(f"⚠️ Reachy init failed: {exc}")
-                print("↪ Falling back to direct camera access")
-                # Try to find Reachy camera device
-                reachy_device = find_reachy_camera()
-                if reachy_device:
-                    print(f"  📷 Found Reachy camera at {reachy_device}")
-                    self.runtime = create_runtime("webcam", self.cfg.camera_index, reachy_device_path=reachy_device)
-                else:
-                    print("  ⚠️ Could not find Reachy camera, using default webcam")
-                    self.cfg.camera_source = "webcam"
-                    self.runtime = create_runtime("webcam", self.cfg.camera_index)
+
+        # Track whether a real Reachy robot connection was established and keep robot runtime separate
+        self._reachy_connected = False
+        self._robot_runtime = None
+
+        # If user requested reachy, try to initialize with retries before falling back
+        if self.cfg.camera_source == "reachy":
+            attempts = 3
+            for attempt in range(1, attempts + 1):
+                try:
+                    self.runtime.__enter__()
+                    self._reachy_connected = True
+                    self._robot_runtime = self.runtime
+                    print(f"✅ Reachy runtime initialized (attempt {attempt}/{attempts})")
+                    break
+                except Exception as exc:
+                    print(f"⚠️ Reachy init attempt {attempt}/{attempts} failed: {exc}")
+                    if attempt < attempts:
+                        time.sleep(1.0)
+                        print("   ↪ Retrying...")
+                    else:
+                        print("↪ All Reachy init attempts failed, falling back to direct camera access")
+                        # Try to find Reachy camera device for webcam-only access
+                        reachy_device = find_reachy_camera()
+                        if reachy_device:
+                            print(f"  📷 Found Reachy camera at {reachy_device}; using webcam runtime for camera-only access")
+                            self.runtime = create_runtime("webcam", self.cfg.camera_index, reachy_device_path=reachy_device)
+                        else:
+                            print("  ⚠️ Could not find Reachy camera, using default webcam")
+                            self.cfg.camera_source = "webcam"
+                            self.runtime = create_runtime("webcam", self.cfg.camera_index)
+                        # Enter the webcam runtime (camera-only)
+                        try:
+                            self.runtime.__enter__()
+                        except Exception as exc2:
+                            print(f"❌ Failed to initialize webcam runtime: {exc2}")
+                            raise
+        else:
+            # Webcam mode requested
+            try:
                 self.runtime.__enter__()
-            else:
+            except Exception as exc:
+                print(f"❌ Failed to initialize webcam runtime: {exc}")
                 raise
 
-        # Setup robot
-        self.runtime.set_automatic_body_yaw(False)
-        self.runtime.reset_head(duration=0.5)
+        # If reachy runtime was initialized but it doesn't provide frames (media disabled),
+        # open a separate webcam runtime for camera frames while keeping robot control.
+        if self._reachy_connected:
+            try:
+                frame = None
+                try:
+                    frame = self._robot_runtime.get_frame()
+                except Exception:
+                    frame = None
+                if frame is None:
+                    reachy_device = find_reachy_camera()
+                    if reachy_device:
+                        print(f"ℹ️ Reachy connected but media unavailable; using camera device {reachy_device} for frames")
+                        camera_rt = create_runtime("webcam", self.cfg.camera_index, reachy_device_path=reachy_device)
+                        camera_rt.__enter__()
+                        # Use webcam runtime for frames; keep robot runtime for motion commands
+                        self.runtime = camera_rt
+                        self._camera_runtime = camera_rt
+                        print("✅ Camera runtime initialized for frames; robot control remains available")
+                    else:
+                        print("⚠️ Reachy connected but no camera device found; frames may be unavailable")
+                else:
+                    # Robot runtime provides frames; use it as the main runtime
+                    self._camera_runtime = None
+            except Exception as e:
+                print(f"⚠️ Error while configuring camera runtime: {e}")
+
+        if not self._reachy_connected:
+            print("⚠️ Running in camera-only mode: robot body/head control will be disabled.")
+
+        # Setup robot (use robot runtime if available)
+        robot_rt = getattr(self, '_robot_runtime', None) or self.runtime
+        try:
+            if robot_rt:
+                robot_rt.set_automatic_body_yaw(False)
+                robot_rt.reset_head(duration=0.5)
+        except Exception as e:
+            if self.cfg.debug:
+                print(f"⚠️ Robot setup error: {e}")
 
         # Start voice listener
         self._start_listener()
@@ -428,11 +522,14 @@ class CheeseModeApp(BaseModeApp):
     def _start_listener(self) -> None:
         """Start background ASR listener."""
         self._listener_running = True
+        self._listener_stop.clear()
 
         def loop():
             while self._listener_running:
                 try:
-                    heard = self.voice.listen()
+                    heard = self.voice.listen(stop_event=self._listener_stop)
+                    if self._listener_stop.is_set():
+                        break
                     if heard:
                         self._asr_queue.put(heard)
                         if self.cfg.debug:
@@ -448,12 +545,32 @@ class CheeseModeApp(BaseModeApp):
     def cleanup(self) -> None:
         """Cleanup cheese mode resources."""
         self._listener_running = False
+        self._listener_stop.set()
         if self._listener_thread:
-            self._listener_thread.join(timeout=1.5)
+            self._listener_thread.join(timeout=5.0)
 
-        if self.runtime:
-            self.runtime.__exit__(None, None, None)
-            self.runtime = None
+        # Shutdown background executor
+        self._executor.shutdown(wait=False)
+
+        # Track which runtimes have been exited to prevent double-close
+        excluded: set[int] = set()
+
+        def _exit(obj) -> None:
+            if obj is None or id(obj) in excluded:
+                return
+            try:
+                obj.__exit__(None, None, None)
+            except Exception:
+                pass
+            excluded.add(id(obj))
+
+        _exit(getattr(self, '_camera_runtime', None))
+        _exit(getattr(self, '_robot_runtime', None))
+        _exit(getattr(self, 'runtime', None))
+
+        self._camera_runtime = None
+        self._robot_runtime = None
+        self.runtime = None
 
     def run_frame(self, frame: np.ndarray) -> bool:
         """Process one frame."""
@@ -470,21 +587,37 @@ class CheeseModeApp(BaseModeApp):
         status = None
 
         if self.state == RCState.SLEEP:
-            # In sleep mode: still detect face for display, but don't control robot
-            status = self.aligner.update(None, frame, soft=False)  # runtime=None means no control
+            # Passive tracking stays available in sleep when track is enabled, but
+            # the photo workflow still requires wake/arm state transitions.
+            runtime_for_align = (
+                self._robot_runtime
+                if getattr(self, "_robot_runtime", None) is not None and self.cfg.track_enabled
+                else None
+            )
+            status = self.aligner.update(runtime_for_align, frame, soft=True)
 
         elif self.state == RCState.TRACKING:
             if self.cfg.debug and not hasattr(self, '_tracking_logged'):
                 print(f"   🎯 TRACKING mode: runtime={self.runtime is not None}")
                 self._tracking_logged = True
-            status = self.aligner.update(self.runtime, frame, soft=False)
+            runtime_for_align = (self._robot_runtime if getattr(self, '_robot_runtime', None) is not None and self.cfg.track_enabled else None)
+            status = self.aligner.update(runtime_for_align, frame, soft=False)
             if status["aligned"]:
                 self.state = RCState.ARMED
                 self._armed_since = time.time()
                 self.voice.speak("Look at me. Hold still.")
+            elif not status["has_face"]:
+                if self._tracking_no_face_since == 0.0:
+                    self._tracking_no_face_since = time.time()
+                elif time.time() - self._tracking_no_face_since > 30.0:
+                    self.voice.speak("No one here. Going back to sleep.")
+                    self._enter_sleep()
+            else:
+                self._tracking_no_face_since = 0.0
 
         elif self.state == RCState.ARMED:
-            status = self.aligner.update(self.runtime, frame, soft=True)
+            runtime_for_align = (self._robot_runtime if getattr(self, '_robot_runtime', None) is not None and self.cfg.track_enabled else None)
+            status = self.aligner.update(runtime_for_align, frame, soft=True)
             if not status["has_face"]:
                 self.state = RCState.TRACKING
             elif time.time() - self._armed_since > self.cfg.command_timeout_s:
@@ -492,7 +625,8 @@ class CheeseModeApp(BaseModeApp):
                 self._enter_sleep()
 
         elif self.state == RCState.COUNTDOWN:
-            status = self.aligner.update(self.runtime, frame, soft=True)
+            runtime_for_align = (self._robot_runtime if getattr(self, '_robot_runtime', None) is not None and self.cfg.track_enabled else None)
+            status = self.aligner.update(runtime_for_align, frame, soft=True)
             if not self._update_countdown(status):
                 return True  # Continue
 
@@ -513,12 +647,19 @@ class CheeseModeApp(BaseModeApp):
             if self.cfg.debug:
                 print(f"📝 Processing: {text}")
 
+            # Sleep command — works in any non-SLEEP state
+            if self.state != RCState.SLEEP and self._is_sleep_phrase(text):
+                self.voice.speak("Going to sleep.")
+                self._enter_sleep()
+                continue
+
             # Wake word detection
             if self.state == RCState.SLEEP:
                 if self._is_wake_phrase(text):
                     print(f"   🔔 Wake word detected! Going to TRACKING mode")
                     self.voice.speak("Hi. I am awake.")
                     self.state = RCState.TRACKING
+                    self._tracking_no_face_since = 0.0
                     self.aligner.reset()
                     if hasattr(self, '_tracking_logged'):
                         delattr(self, '_tracking_logged')
@@ -550,6 +691,15 @@ class CheeseModeApp(BaseModeApp):
             elif event == "manual_capture":
                 if self.state in (RCState.TRACKING, RCState.ARMED):
                     self._start_countdown()
+            elif event == "toggle_track":
+                # Toggle tracking enabled flag in config (affects runtime passed to aligner)
+                self.cfg.track_enabled = not getattr(self.cfg, "track_enabled", True)
+                state_str = "on" if self.cfg.track_enabled else "off"
+                print(f"   🖱️  Toggle tracking: {state_str}")
+                try:
+                    self.voice.speak(f"Tracking {state_str}.")
+                except Exception:
+                    pass
             elif event == "manual_sleep":
                 self.voice.speak("Going to sleep.")
                 self._enter_sleep()
@@ -578,13 +728,12 @@ class CheeseModeApp(BaseModeApp):
             self.state = RCState.TRACKING
             return False
 
-        # Speak countdown lines
-        while self._countdown_index < len(self._countdown_lines):
+        # Speak countdown lines — one per frame to avoid flooding when FPS drops
+        if self._countdown_index < len(self._countdown_lines):
             t_mark, line = self._countdown_lines[self._countdown_index]
-            if elapsed < t_mark:
-                break
-            self.voice.speak(line)
-            self._countdown_index += 1
+            if elapsed >= t_mark:
+                self.voice.speak(line)
+                self._countdown_index += 1
 
         # Capture at end
         if elapsed >= 3.4:
@@ -594,33 +743,48 @@ class CheeseModeApp(BaseModeApp):
         return True
 
     def _capture_photo(self) -> None:
-        """Capture and save photo."""
+        """Capture and save photo in background thread."""
         if self._last_frame is None:
             self.voice.speak("Sorry, cannot get camera frame.")
             self.state = RCState.TRACKING
             return
 
+        # Copy frame for the background save task
+        frame_copy = self._last_frame.copy()
+        save_dir = self.cfg.save_dir
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = self.cfg.save_dir / f"IMG_{timestamp}.jpg"
+        out_path = save_dir / f"IMG_{timestamp}.jpg"
 
-        try:
-            cv2.imwrite(str(out_path), self._last_frame)
-            self._last_saved_path = str(out_path)
-            print(f"📸 Saved: {out_path}")
-            self.voice.speak("Photo saved.")
-        except Exception as e:
-            print(f"❌ Failed to save: {e}")
-            self.voice.speak("Failed to save photo.")
+        def _save():
+            try:
+                cv2.imwrite(str(out_path), frame_copy)
+                self._last_saved_path = str(out_path)
+                print(f"📸 Saved: {out_path}")
+                self.voice.speak("Photo saved.")
+            except Exception as e:
+                print(f"❌ Failed to save: {e}")
+                self.voice.speak("Failed to save photo.")
 
+        self._executor.submit(_save)
         self._enter_sleep()
 
-    @staticmethod
-    def _is_wake_phrase(text: str) -> bool:
-        """Check if text contains wake phrase."""
+    def _is_wake_phrase(self, text: str) -> bool:
+        """Check if text contains wake phrase (uses cfg.wake_word)."""
         normalized = re.sub(r"[^a-zA-Z0-9\s]", " ", text.lower())
         normalized = re.sub(r"\s+", " ", normalized).strip()
-        aliases = {"reachy", "ricky", "richie", "reaching"}
+        # Build aliases from configured wake word plus common mis-hearings
+        wake = self.cfg.wake_word.lower()
+        aliases = {wake}
+        # Add common ASR mis-hearings for "reachy"
+        if wake == "reachy":
+            aliases.update({"ricky", "richie", "reaching"})
         return any(alias in normalized for alias in aliases)
+
+    @staticmethod
+    def _is_sleep_phrase(text: str) -> bool:
+        """Check if text contains a sleep/go-to-sleep command."""
+        sleep_phrases = {"go to sleep", "sleep", "stop", "cancel"}
+        return any(p in text for p in sleep_phrases)
 
     @staticmethod
     def _is_capture_phrase(text: str) -> bool:

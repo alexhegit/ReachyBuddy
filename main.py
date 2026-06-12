@@ -111,6 +111,17 @@ For mode-specific help:
         action="store_true",
         help="Enable debug output",
     )
+    global_group.add_argument(
+        "--reachy-host",
+        default="127.0.0.1",
+        help="Hostname or IP of Reachy daemon (default: 127.0.0.1)",
+    )
+    global_group.add_argument(
+        "--reachy-port",
+        type=int,
+        default=8000,
+        help="Port of Reachy daemon (default: 8000)",
+    )
 
     # ASR options
     asr_group = parser.add_argument_group("ASR options")
@@ -171,6 +182,15 @@ For mode-specific help:
         type=float,
         default=12.0,
         help="Command timeout in seconds (default: 12)",
+    )
+
+    cheese_group.add_argument(
+        "--track",
+        "--no-track",
+        dest="track",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable robot head/body tracking (default: on)",
     )
 
     # Guard mode options (placeholder)
@@ -252,6 +272,9 @@ def build_config(args) -> tuple:
             wake_word=args.wake_word,
             command_timeout_s=args.timeout,
             camera_profile=args.camera_profile,
+            track_enabled=args.track,
+            reachy_host=args.reachy_host,
+            reachy_port=args.reachy_port,
         )
     elif args.guard:
         mode = "guard"

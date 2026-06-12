@@ -15,6 +15,9 @@ webrtcvad-wheels>=2.0.14
 # TTS (Piper)
 piper-tts>=1.4.0
 
+# WebSocket (pinned: v15 breaks reachy-mini uvicorn handshake)
+websockets>=12,<15
+
 # Vision
 mediapipe>=0.10.0
 

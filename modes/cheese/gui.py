@@ -21,9 +21,11 @@ class CheeseGUI:
 
         # Button layout
         self._button_height = 44
+        # Buttons: label may be updated dynamically (e.g., Track shows current state)
         self._buttons = [
             ("Wake", "manual_wake"),
             ("Take Photo", "manual_capture"),
+            ("Track", "toggle_track"),
             ("Sleep", "manual_sleep"),
         ]
 
@@ -151,7 +153,11 @@ class CheeseGUI:
         available_width = self.cfg.preview_width - spacing * (len(self._buttons) + 1)
         btn_w = available_width // len(self._buttons)
 
-        for i, (label, _) in enumerate(self._buttons):
+        for i, (label, action) in enumerate(self._buttons):
+            # Dynamic label for tracking toggle
+            display_label = label
+            if action == "toggle_track":
+                display_label = "Track On" if self.cfg.track_enabled else "Track Off"
             bx = spacing + i * (btn_w + spacing)
             by = top
             cv2.rectangle(
@@ -170,7 +176,7 @@ class CheeseGUI:
             )
             cv2.putText(
                 canvas,
-                label,
+                display_label,
                 (bx + 10, by + 28),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.58,
@@ -237,8 +243,8 @@ class CheeseGUI:
 
             # Draw alignment target box (deadzone)
             cx, cy = w // 2, h // 2
-            dz_x = int(25 * scale_x)
-            dz_y = int(20 * scale_y)
+            dz_x = int(self.cfg.deadzone_x * scale_x)
+            dz_y = int(self.cfg.deadzone_y * scale_y)
             cv2.rectangle(
                 frame,
                 (cx - dz_x, cy - dz_y),
