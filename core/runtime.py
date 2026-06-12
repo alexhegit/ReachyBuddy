@@ -108,7 +108,8 @@ class RobotRuntime:
         raise NotImplementedError
 
     def look_at_image(self, x: int, y: int, duration: float = 0.2,
-                       frame_width: int = 640, frame_height: int = 480) -> None:
+                       frame_width: int = 640, frame_height: int = 480,
+                       pan_gain: float = 0.3, tilt_gain: float = 0.2) -> None:
         """Make robot look at image coordinates."""
         raise NotImplementedError
 
@@ -261,7 +262,8 @@ class ReachyRuntime(RobotRuntime):
         return None
 
     def look_at_image(self, x: int, y: int, duration: float = 0.2,
-                       frame_width: int = 640, frame_height: int = 480) -> None:
+                       frame_width: int = 640, frame_height: int = 480,
+                       pan_gain: float = 0.3, tilt_gain: float = 0.2) -> None:
         """Make Reachy look at image coordinates.
 
         Tries to use the high-level SDK method if present; otherwise falls back to a
@@ -288,8 +290,6 @@ class ReachyRuntime(RobotRuntime):
         nx = (x - (w / 2.0)) / (w / 2.0)
         ny = (y - (h / 2.0)) / (h / 2.0)
 
-        pan_gain = 0.6
-        tilt_gain = 0.35
         pan = float(-nx * pan_gain)
         tilt = float(ny * tilt_gain)
 
@@ -361,10 +361,17 @@ class WebcamRuntime(RobotRuntime):
         ok, frame = self._cap.read()
         if not ok:
             return None
+        # Camera may ignore the 640x480 set() call (e.g. Reachy MJPG only
+        # supports 1920x1080+).  Resize to a consistent resolution so all
+        # pixel-based parameters (cmd_max_step, deadzone, etc.) behave as
+        # designed regardless of the camera's native output.
+        if frame.shape[1] != 640 or frame.shape[0] != 480:
+            frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_LINEAR)
         return frame
 
     def look_at_image(self, x: int, y: int, duration: float = 0.2,
-                       frame_width: int = 640, frame_height: int = 480) -> None:
+                       frame_width: int = 640, frame_height: int = 480,
+                       pan_gain: float = 0.3, tilt_gain: float = 0.2) -> None:
         pass
 
     def goto_body_yaw(self, yaw: float, duration: float = 0.35) -> None:

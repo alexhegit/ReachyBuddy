@@ -28,31 +28,45 @@ class CheeseConfig(ModeConfig):
     stable_needed: int = 10
 
     # FaceAligner control parameters
+    # Tuned for smooth, gradual convergence: smaller steps, slower moves,
+    # lower frequency, and heavier EMA smoothing.
+    #
+    # Signal chain:
+    #   FaceAligner: ema_dx * head_gain_x → target_x (pixel offset)
+    #   Fallback: (target_x - center)/(w/2) * pan_gain → pan (radians)
+    #   Effective gain = head_gain_x * pan_gain / (w/2)
+    # Move intervals are kept >= corresponding head durations so each
+    # movement completes before the next command is sent (no overlap).
     lock_hold_x: int = 35
     lock_hold_y: int = 28
     release_x: int = 45
     release_y: int = 35
     reacquire_x: int = 130
     reacquire_y: int = 110
-    cmd_max_step_x: int = 95
-    cmd_max_step_y: int = 70
+    cmd_max_step_x: int = 60
+    cmd_max_step_y: int = 50
     min_cmd_delta_px: int = 24
     max_body_yaw: float = 0.8
-    ema_alpha: float = 0.30
-    body_step: float = 0.12
-    body_duration: float = 0.42
+    ema_alpha: float = 0.20
+    body_step: float = 0.08
+    body_duration: float = 0.60
     head_reset_duration: float = 0.28
     body_cooldown: float = 0.6
     settle_duration: float = 0.35
-    move_interval_soft: float = 0.28
-    move_interval_reacquire: float = 0.22
-    move_interval_normal: float = 0.16
-    head_gain_x: float = 0.55
-    head_gain_y: float = 0.50
-    head_duration_soft: float = 0.34
-    head_duration_normal: float = 0.24
+    move_interval_soft: float = 0.60
+    move_interval_reacquire: float = 0.50
+    move_interval_normal: float = 0.50
+    head_gain_x: float = 0.35
+    head_gain_y: float = 0.35
+    head_duration_soft: float = 0.50
+    head_duration_normal: float = 0.40
     big_error_delay_reacquire: float = 0.35
     big_error_delay_normal: float = 0.5
+
+    # Fallback look_at_image gains (used when SDK media is unavailable).
+    # Normalised pixel offset → radians: pan = nx * pan_gain, tilt = ny * tilt_gain
+    pan_gain: float = 0.40
+    tilt_gain: float = 0.35
 
     # Camera profile for hardware parameter tuning (reachy mode only)
     camera_profile: Optional[str] = None

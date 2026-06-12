@@ -239,7 +239,8 @@ class FaceAligner:
                             if self._debug:
                                 print(f"   👁️  Calling look_at_image({target_x}, {target_y}, duration={duration})")
                             runtime.look_at_image(target_x, target_y, duration=duration,
-                                                   frame_width=frame_w, frame_height=frame_h)
+                                                   frame_width=frame_w, frame_height=frame_h,
+                                                   pan_gain=self._cfg.pan_gain, tilt_gain=self._cfg.tilt_gain)
                             if self._debug:
                                 print(f"   ✅ Head moved to ({target_x}, {target_y})")
                             self._last_cmd_center = (target_x, target_y)
