@@ -2,8 +2,8 @@
 
 **ReachyBuddy** — A multi-mode robot application for Reachy Mini with pluggable modes:
 
-- **🧀 Cheese Mode**: Voice photo capture with face tracking
-- **🔒 Guard Mode**: Multi-modal security monitoring (placeholder, TODO)
+- **🧀 Cheese Mode**: Voice-interactive photo capture with automatic face tracking and alignment
+- **🔒 Guard Mode**: Multi-modal security monitoring with Ollama VLM analysis, head scanning, and voice alerts
 - **💬 Chat Mode**: Voice conversation with LLM (placeholder, TODO)
 - **🤖 Agent Mode**: AI agent with tools (placeholder, TODO)
 
@@ -23,13 +23,37 @@ Voice-interactive photo capture with automatic face tracking and alignment.
 ```
 
 **Features:**
-- Voice wake-up ("Reachy")
-- Automatic face tracking with head + body compensation
-- Voice photo capture ("cheese", "take photo")
+- Voice wake-up with fuzzy matching ("Reachy", "Ricky", "Richie", "reaching")
+- Automatic face tracking with proportional head control and body-follows-head compensation
+- Voice photo capture ("cheese", "take photo", "picture")
 - Smart countdown with audio prompts
-- Real-time GUI preview with face bounding box
+- Real-time OpenCV GUI preview with face bounding box, center crosshair, and state indicator
+- Headless mode (`--gui-backend none`) for daemon/server deployments
+- 30-second no-face timeout returns to sleep
+- "sleep" / "stop" / "cancel" voice commands work in any active state
 
-### Guard / Chat / Agent Modes (Placeholders)
+### Guard Mode (Implemented)
+
+Multi-modal security monitoring using an Ollama vision-language model. The robot periodically analyzes the camera feed, scans its head, and speaks voice alerts when it detects people or unusual activity.
+
+**Workflow:**
+```
+[Camera feed] --> [VLM analysis every N seconds] --(not OK)--> [Voice alert + screenshot]
+                 |                                    |
+                 +--(OK / empty)--> [Continue scanning]
+```
+
+**Features:**
+- Periodic VLM analysis via Ollama `/api/chat` with image input
+- Configurable analysis interval (default: 8s)
+- Automatic head scanning (`--scan` / `--no-scan`)
+- Voice alerts via Piper-TTS when something noteworthy is detected
+- Alert screenshots saved to `~/Pictures/ReachyGuard`
+- Works with physical Reachy robot or local webcam
+- Bypasses `HTTP_PROXY` for local Ollama requests
+- Headless mode support (`--gui-backend none`)
+
+### Chat / Agent Modes (Placeholders)
 
 These modes are planned for future development. Running them will show a "coming soon" message.
 
@@ -111,6 +135,50 @@ Uses your computer's webcam. **Note:** Robot movement is disabled in webcam mode
 ```bash
 python main.py --cheese --camera-source webcam --camera-index 0
 ```
+
+### Run Guard Mode
+
+#### Requirements
+
+- [Ollama](https://ollama.com/) must be running locally (or on a reachable host)
+- A vision-capable model must be available, e.g. `gemma4:12b` (default) or `gemma4:e2b`
+
+#### Pull the default model
+
+```bash
+ollama pull gemma4:12b
+```
+
+#### With Reachy Mini Robot
+
+```bash
+# Start the Reachy daemon first (if using physical robot without media streaming)
+.venv/bin/python -m reachy_mini.daemon.app.main --no-media
+
+# Then start Guard mode
+python main.py --guard --camera-source reachy --debug
+```
+
+#### With Local Webcam
+
+```bash
+python main.py --guard --camera-source webcam --camera-index 0
+```
+
+#### Common Guard Options
+
+```bash
+# Use a different model or analysis interval
+python main.py --guard --guard-model gemma4:e2b --guard-interval 5
+
+# Disable head scanning
+python main.py --guard --no-scan
+
+# Use a remote Ollama instance
+OLLAMA_HOST=http://192.168.1.100:11434 python main.py --guard
+```
+
+Alert screenshots are saved to `~/Pictures/ReachyGuard/` by default.
 
 ---
 
@@ -318,33 +386,52 @@ Two GUI backends supported:
 
 ## ⚙️ Command Line Arguments
 
+### Global Options
+
 ```
-python main.py --cheese [OPTIONS]
+python main.py --cheese| --guard [OPTIONS]
 
 Global Options:
-  --camera-source {reachy,webcam}  Camera source (default: reachy)
-  --camera-index INT               Webcam index for webcam mode (default: 0)
-  --preview-width INT              Preview width (default: 640)
-  --preview-height INT             Preview height (default: 480)
-  --preview-fps FLOAT              Preview FPS (default: 20.0)
-  --gui-backend {auto,dpg,cv2,none}  GUI backend (default: auto)
-  --debug                          Enable debug output
+  --camera-source {reachy,webcam}    Camera source (default: reachy)
+  --camera-index INT                 Webcam index for webcam mode (default: 0)
+  --preview-width INT                Preview width (default: 640)
+  --preview-height INT               Preview height (default: 480)
+  --preview-fps FLOAT                Preview FPS (default: 20.0)
+  --gui-backend {auto,cv2,none}      GUI backend (default: auto)
+  --debug                            Enable debug output
+```
 
-ASR Options:
+### ASR Options
+
+```
   --asr-model {tiny,base,small,medium,large}  ASR model size (default: base)
-  --vad-silence FLOAT              VAD silence threshold seconds (default: 0.7)
-  --vad-aggressive {0,1,2,3}       VAD aggressiveness (default: 1)
+  --vad-silence FLOAT                         VAD silence threshold seconds (default: 0.7)
+  --vad-aggressive {0,1,2,3}                  VAD aggressiveness (default: 1)
+```
 
-TTS Options:
-  --piper-model PATH               Piper TTS model path
-  --piper-config PATH              Piper TTS config path
-  --speaker INT                    Speaker ID (default: 0)
+### TTS Options
 
-Cheese Mode Options:
-  --save-dir PATH                  Photo save directory
-  --wake-word TEXT                 Wake word (default: reachy)
-  --timeout FLOAT                  Command timeout in seconds (default: 12)
-  --camera-profile NAME            Camera profile to load (created via tuning tools)
+```
+  --piper-model PATH    Piper TTS model path
+  --piper-config PATH   Piper TTS config path
+  --speaker INT         Speaker ID (default: 0)
+```
+
+### Cheese Mode Options
+
+```
+  --save-dir PATH       Photo save directory
+  --camera-profile NAME Camera profile to load (created via tuning tools)
+  --track / --no-track  Enable/disable head/body tracking (default: on)
+```
+
+### Guard Mode Options
+
+```
+  --guard-model MODEL      Ollama VLM model (default: gemma4:12b)
+  --guard-interval SECONDS Seconds between analyses (default: 8.0)
+  --scan / --no-scan       Enable/disable head scanning (default: on)
+  --scan-range RADIANS     Head scan range (default: 0.6)
 ```
 
 ---
@@ -360,18 +447,21 @@ ReachyBuddy/
 │   └── event_bus.py        # Event system
 ├── modes/                   # Mode implementations
 │   ├── cheese/             # Photo capture mode
-│   ├── guard/              # Security monitoring (placeholder)
+│   ├── guard/              # Security monitoring mode
 │   ├── chat/               # Voice chat (placeholder)
 │   └── agent/              # AI agent (placeholder)
 ├── utils/                   # Shared utilities
 │   ├── asr.py              # Speech recognition
-│   └── tts_engine.py       # Text-to-speech
+│   ├── tts_engine.py       # Text-to-speech
+│   ├── camera_tuning.py    # V4L2 camera tuning CLI
+│   └── camera_tuning_gui.py# V4L2 camera tuning GUI
 ├── vision/                  # Computer vision
 │   └── face_tracker.py     # Face detection
 ├── docs/                    # Documentation
-│   └── face_tracking.md    # Camera and face tracking guide
+│   ├── face_tracking.md    # Camera and face tracking guide
+│   └── TO-DO.md            # Guard mode future enhancements
 ├── requirements/            # Per-mode dependencies
-└── models/                  # Voice models
+└── models/                  # Voice models + vision models
 ```
 
 ---
@@ -384,8 +474,9 @@ ReachyBuddy/
 | **VAD** | webrtcvad |
 | **TTS** | Piper-TTS (ONNX) |
 | **Face Detection** | MediaPipe Face Detection |
-| **GUI** | Dear PyGui / OpenCV |
+| **GUI** | OpenCV (`cv2`) / headless (`none`) |
 | **Robot Control** | reachy-mini SDK |
+| **Guard VLM** | Ollama (gemma4:12b / gemma4:e2b) |
 
 ---
 
@@ -449,15 +540,33 @@ See [docs/face_tracking.md](./docs/face_tracking.md) for detailed explanation.
 - Try adjusting `--vad-silence` parameter (between 0.5-1.5)
 - Use `--debug` for detailed logs
 
-### No TTS Audio
+### Ollama Not Responding (Guard Mode)
+
+If Guard mode starts but the model never loads:
 
 ```bash
-# Check audio output
-speaker-test -t wav
+# Verify Ollama is running
+ollama ps
+curl http://localhost:11434/api/tags
 
-# Check sounddevice
-python -c "import sounddevice as sd; print(sd.query_devices())"
+# Check that the model exists
+ollama list
+
+# Pull the default model if missing
+ollama pull gemma4:12b
 ```
+
+If you have `HTTP_PROXY` / `HTTPS_PROXY` environment variables set, the app will bypass them for local Ollama requests. If you still see 502 errors, set:
+
+```bash
+export NO_PROXY=localhost,127.0.0.1
+```
+
+### No Guard Alerts
+
+1. Check the terminal for `🧠 Analysis:` output. If none appears, the analysis thread may not have started — run with `--debug`.
+2. The VLM may return "OK" for normal scenes. Place a person or object in front of the camera and wait one analysis interval.
+3. Verify screenshots directory exists: `ls ~/Pictures/ReachyGuard`
 
 ---
 
