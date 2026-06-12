@@ -1,8 +1,5 @@
-# Guard mode - Multi-modal security monitoring (placeholder)
+# Guard mode - Multi-modal security monitoring via Ollama VLM
 -r base.txt
 
-# Future dependencies for multi-modal models:
-# transformers>=4.40.0
-# torch>=2.0.0
-# accelerate
-# pillow>=10.0.0
+# HTTP client for Ollama API (included in base.txt via requests)
+# aiohttp>=3.9.0  # (uncomment if switching to async in the future)

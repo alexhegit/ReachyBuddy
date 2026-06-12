@@ -3,13 +3,14 @@
 
 Modes:
   --cheese    Voice photo capture with face tracking
-  --guard     Multi-modal security monitoring (placeholder)
+  --guard     Multi-modal security monitoring with Ollama VLM
   --chat      Voice conversation with LLM (placeholder)
   --agent     Voice-controlled AI agent (placeholder)
 
 Examples:
   python main.py --cheese --camera-source webcam
-  python main.py --guard --guard-endpoint http://localhost:8000
+  python main.py --guard --camera-source reachy
+  python main.py --guard --guard-model gemma4:e2b --guard-interval 5
   python main.py --chat --ollama-model qwen3:0.6b
   python main.py --agent --tools config/tools.yaml
 """
@@ -29,8 +30,8 @@ def create_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Available modes:
-  --cheese    Voice photo capture with face tracking (implemented)
-  --guard     Multi-modal security monitoring (placeholder)
+  --cheese    Photo capture with voice control (implemented)
+  --guard     Security monitoring with Ollama VLM (implemented)
   --chat      Voice conversation with LLM via Ollama (placeholder)
   --agent     Voice-controlled AI agent with tools (placeholder)
 
@@ -49,7 +50,7 @@ For mode-specific help:
     mode_group.add_argument(
         "--guard",
         action="store_true",
-        help="Security monitoring mode (placeholder)",
+        help="Security monitoring mode with VLM analysis via Ollama",
     )
     mode_group.add_argument(
         "--chat",
@@ -202,18 +203,32 @@ For mode-specific help:
         help="Invert head pan direction",
     )
 
-    # Guard mode options (placeholder)
-    guard_group = parser.add_argument_group("Guard mode options (placeholder)")
-    guard_group.add_argument(
-        "--guard-endpoint",
-        default="http://localhost:8000",
-        help="Multi-modal model API endpoint",
-    )
+    # Guard mode options
+    guard_group = parser.add_argument_group("Guard mode options")
     guard_group.add_argument(
         "--guard-model",
-        choices=["gemma4-e2b", "gemma4-e4b", "minicpm-o-4.5"],
-        default="gemma4-e2b",
-        help="Vision model to use",
+        default="gemma4:12b",
+        help="Ollama VLM model name (default: gemma4:12b)",
+    )
+    guard_group.add_argument(
+        "--guard-interval",
+        type=float,
+        default=8.0,
+        help="Analysis interval in seconds (default: 8.0)",
+    )
+    guard_group.add_argument(
+        "--scan",
+        "--no-scan",
+        dest="scan",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable/disable head scanning (default: on)",
+    )
+    guard_group.add_argument(
+        "--scan-range",
+        type=float,
+        default=0.6,
+        help="Head scan range in radians (default: 0.6)",
     )
 
     # Chat mode options (placeholder)
@@ -288,7 +303,8 @@ def build_config(args) -> tuple:
         )
     elif args.guard:
         mode = "guard"
-        config = ModeConfig(
+        from modes.guard.config import GuardConfig
+        config = GuardConfig(
             camera_source=args.camera_source,
             camera_index=args.camera_index,
             preview_width=args.preview_width,
@@ -302,12 +318,13 @@ def build_config(args) -> tuple:
             piper_model=args.piper_model,
             piper_config=args.piper_config,
             speaker_id=args.speaker,
+            ollama_model=args.guard_model,
+            analysis_interval=args.guard_interval,
+            scan_enabled=args.scan,
+            scan_range=args.scan_range,
+            reachy_host=args.reachy_host,
+            reachy_port=args.reachy_port,
         )
-        # Store guard-specific in mode_specific dict
-        config.mode_specific = {
-            "endpoint": args.guard_endpoint,
-            "model": args.guard_model,
-        }
     elif args.chat:
         mode = "chat"
         config = ModeConfig(
