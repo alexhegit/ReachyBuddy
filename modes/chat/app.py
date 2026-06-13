@@ -259,6 +259,7 @@ class ChatModeApp:
                         "temperature": self.cfg.temperature,
                         "num_predict": self.cfg.max_tokens,
                     },
+                    "think": False,
                 },
                 stream=True,
                 timeout=120,
