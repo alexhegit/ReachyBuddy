@@ -269,17 +269,22 @@ For mode-specific help:
         help="Enable gentle emotion actions",
     )
 
-    # Agent mode options (placeholder)
-    agent_group = parser.add_argument_group("Agent mode options (placeholder)")
+    # Agent mode options
+    agent_group = parser.add_argument_group("Agent mode options")
     agent_group.add_argument(
         "--tools",
         type=Path,
         help="Tools configuration file",
     )
     agent_group.add_argument(
-        "--agent-model",
-        default="qwen3:0.6b",
-        help="LLM for agent",
+        "--hermes-url",
+        default="http://localhost:8642",
+        help="Hermes API URL (local hermes-agent)",
+    )
+    agent_group.add_argument(
+        "--hermes-model",
+        default="hermes3-llama-3.1-8b",
+        help="Hermes model name",
     )
 
     return parser
@@ -389,7 +394,12 @@ def build_config(args) -> tuple:
         )
         config.mode_specific = {
             "tools": args.tools,
-            "agent_model": args.agent_model,
+            "hermes_url": args.hermes_url,
+            "hermes_model": args.hermes_model,
+            "hermes_api_key": "alehe",  # Default API key
+            "use_asr": True,
+            "asr_model": "base",
+            "asr_device": "cpu",
         }
     else:
         raise ValueError("No mode selected")
@@ -415,6 +425,11 @@ def main() -> int:
             # Chat mode has its own blocking loop, not BaseModeApp's frame loop
             from modes.chat import ChatModeApp
             app = ChatModeApp(config)
+            app.run()
+        elif mode_name == "agent":
+            # Agent mode has its own blocking loop with tool calling
+            from modes.agent.app import AgentModeApp
+            app = AgentModeApp(config)
             app.run()
         else:
             from modes import get_mode

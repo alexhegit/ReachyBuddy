@@ -13,7 +13,7 @@
 | **Cheese** | ✅ Implemented | Voice-interactive photo capture with automatic face tracking and alignment |
 | **Guard** | ✅ Implemented | Multi-modal security monitoring with Ollama VLM analysis |
 | **Chat** | ✅ Implemented | Voice assistant chat with Ollama LLM and emotion actions |
-| **Agent** | 🚧 Placeholder | Voice-controlled AI agent with tool calling |
+| **Agent** | ✅ Implemented | AI agent with Hermes API tool calling and robot control |
 
 The core workflow for Cheese mode:
 ```
@@ -36,6 +36,9 @@ The core workflow for Cheese mode:
 | **GUI** | OpenCV (cv2) only | `--gui-backend` accepts `cv2` or `none`; DearPyGui listed in deps but never imported |
 | **Robot Control** | reachy-mini SDK | Optional (falls back to webcam) |
 | **Camera Control** | v4l2-ctl (v4l-utils) | Hardware parameter tuning |
+| **Guard VLM** | Ollama | gemma4:12b / gemma4:e2b |
+| **Chat LLM** | Ollama | qwen3.5:0.8b / qwen3:0.6b |
+| **Agent LLM** | Hermes API | OpenAI-compatible, local hermes-agent |
 
 ---
 
@@ -54,9 +57,17 @@ ReachyBuddy/
 │   │   ├── app.py          # CheeseModeApp, FaceAligner, VoiceIO, RCState enum
 │   │   ├── config.py       # CheeseConfig dataclass
 │   │   └── gui.py          # CheeseGUI (cv2/none backends)
-│   ├── guard/              # 🚧 Placeholder
-│   ├── chat/               # 🚧 Placeholder
-│   └── agent/              # 🚧 Placeholder
+│   ├── guard/              # ✅ Fully implemented
+│   │   ├── app.py          # GuardModeApp, background VLM analysis, head scanning
+│   │   ├── config.py       # GuardConfig dataclass
+│   │   └── gui.py          # GuardGUI (cv2/none backends)
+│   ├── chat/               # ✅ Fully implemented
+│   │   ├── app.py          # ChatModeApp, blocking chat loop, Ollama integration
+│   │   ├── config.py       # ChatConfig dataclass
+│   │   ├── gui.py          # ChatGUI (cv2/none backends)
+│   │   └── emotion_controller.py # EmotionController, EmotionAnalyzer, SpeakingActor
+│   └── agent/              # ✅ Fully implemented
+│       └── app.py          # AgentModeApp, Hermes API integration, tool calling
 ├── utils/                   # Shared utilities
 │   ├── asr.py              # FasterWhisperASREngine with VAD recording
 │   ├── tts_engine.py       # PiperTTSEngine wrapper
@@ -65,7 +76,8 @@ ReachyBuddy/
 ├── vision/                  # Computer vision
 │   └── face_tracker.py     # MediaPipe FaceTracker with EMA smoothing
 ├── docs/
-│   └── face_tracking.md    # Detailed Chinese documentation on camera/tracking
+│   ├── face_tracking.md    # Detailed Chinese documentation on camera/tracking
+│   └── TO-DO.md            # Future enhancements
 ├── requirements/            # Per-mode dependency files
 │   ├── base.txt            # Core dependencies
 │   ├── cheese.txt          # Inherits base.txt
@@ -142,9 +154,9 @@ main.py (entry point)
     │
     ├── modes/__init__.py (MODE_REGISTRY)
     │       ├── cheese/  → CheeseModeApp
-    │       ├── guard/   → GuardModeApp (placeholder)
-    │       ├── chat/    → ChatModeApp (placeholder)
-    │       └── agent/   → AgentModeApp (placeholder)
+    │       ├── guard/   → GuardModeApp
+    │       ├── chat/    → ChatModeApp
+    │       └── agent/   → AgentModeApp
     │
     └── ModeClass(config).run()
             │

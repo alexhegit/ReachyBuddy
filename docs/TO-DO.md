@@ -1,6 +1,6 @@
-# Guard Mode Future Enhancements
+# Future Enhancements
 
-This document tracks potential extensions and improvements for `--guard` and `--chat` modes.
+This document tracks potential extensions and improvements for all modes.
 
 ## Guard Mode TODO
 
@@ -57,8 +57,32 @@ This document tracks potential extensions and improvements for `--guard` and `--
 7. **Long-term memory**
    - Persist conversation summaries across sessions.
 
+## Agent Mode TODO
+
+1. **More tools**
+   - Add web search, file operations, and other useful tools.
+
+2. **Tool configuration file**
+   - Allow custom tool definitions via YAML/JSON configuration.
+
+3. **Multi-step planning**
+   - Implement task decomposition and planning for complex requests.
+
+4. **Persistent memory**
+   - Store task history and user preferences across sessions.
+
+5. **Web UI dashboard**
+   - Provide a web interface to monitor agent activity and tool execution.
+
+6. **Voice interruption**
+   - Allow interrupting the agent while it's executing tools or speaking.
+
+7. **Custom tool plugins**
+   - Support loading custom tool plugins from external packages.
+
 ## Notes
 
 - Current default VLM model: `gemma4:12b`.
 - Current default chat model: `qwen3.5:0.8b`.
+- Current default agent backend: Hermes API (local hermes-agent).
 - Keep the core pipeline simple; add extensions behind feature flags or config options so the base modes remain lightweight.

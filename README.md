@@ -5,7 +5,7 @@
 - **🧀 Cheese Mode**: Voice-interactive photo capture with automatic face tracking and alignment
 - **🔒 Guard Mode**: Multi-modal security monitoring with Ollama VLM analysis, head scanning, and voice alerts
 - **💬 Chat Mode**: Voice/text conversation with Ollama LLM, Piper-TTS, and emotion-driven robot actions
-- **🤖 Agent Mode**: AI agent with tools (placeholder, TODO)
+- **🤖 Agent Mode**: AI agent with tool calling via Hermes API, supporting voice/text interaction and robot control
 
 ![Demo](./assets/ReachyMiniChat.png)
 
@@ -73,9 +73,23 @@ Voice conversation with Ollama LLM. The robot acts as a voice assistant, speakin
 - Piper-TTS fully offline speech synthesis
 - Supports English and Chinese conversation (auto-detected)
 
-### Agent Mode (Placeholder)
+### Agent Mode (Implemented)
 
-This mode is planned for future development. Running it will show a "coming soon" message.
+AI agent with tool calling via Hermes API. The robot can execute tools, control its head, take photos, and perform multi-step tasks.
+
+**Workflow:**
+```
+[ASR/text input] --> [Hermes API with tools] --> [tool execution] --> [TTS response]
+```
+
+**Features:**
+- Hermes API integration (OpenAI-compatible, local hermes-agent)
+- Tool calling support (move_head, take_photo, get_time, execute_code)
+- ASR input with fixed 4s recording (default) or text input (`--no-asr`)
+- TTS voice output via Piper-TTS
+- Reachy Mini robot control
+- Multi-step task execution with tool results
+- Headless mode support (`--gui-backend none`)
 
 ---
 
@@ -84,6 +98,8 @@ This mode is planned for future development. Running it will show a "coming soon
 - **OS**: Ubuntu 22.04+ / Linux
 - **Hardware**: AMD Ryzen AI or x86_64 platform
 - **Robot**: Pollen Robotics Reachy Mini (with built-in camera)
+- **Ollama**: For Chat and Guard modes (local or remote)
+- **Hermes Agent**: For Agent mode (local hermes-agent with API server enabled)
 
 ---
 
@@ -237,6 +253,66 @@ python main.py --chat --ollama-model qwen3:0.6b --gentle
 
 # Set ASR language explicitly
 python main.py --chat --asr-language zh
+```
+
+### Run Agent Mode
+
+#### Requirements
+
+- Hermes Agent running locally with API server enabled
+- API server must be enabled in `~/.hermes/config.yaml`
+
+#### Setup Hermes API Server
+
+1. Enable API server in `~/.hermes/config.yaml`:
+```yaml
+gateway:
+  platforms:
+    api_server:
+      enabled: true
+      host: 127.0.0.1
+      port: 8642
+      key: alehe
+```
+
+2. Set environment variables in `~/.hermes/.env`:
+```
+API_SERVER_ENABLED=true
+API_SERVER_KEY=alehe
+```
+
+3. Restart the gateway:
+```bash
+hermes gateway restart
+```
+
+4. Verify API server is running:
+```bash
+curl -H "Authorization: Bearer alehe" http://localhost:8642/v1/models
+```
+
+#### Voice Agent (default, ASR enabled)
+
+```bash
+python main.py --agent
+```
+
+#### Text Agent
+
+Useful for testing without a microphone:
+
+```bash
+python main.py --agent --no-asr --gui-backend none
+```
+
+#### Common Agent Options
+
+```bash
+# Use a different Hermes URL
+python main.py --agent --hermes-url http://localhost:8642
+
+# Specify tools file (future feature)
+python main.py --agent --tools config/tools.yaml
 ```
 
 ---
@@ -496,6 +572,14 @@ Global Options:
   --scan-range RADIANS     Head scan range (default: 0.6)
 ```
 
+### Agent Mode Options
+
+```
+  --hermes-url URL        Hermes API URL (default: http://localhost:8642)
+  --hermes-model MODEL    Hermes model name (default: hermes3-llama-3.1-8b)
+  --tools PATH            Tools configuration file (future feature)
+```
+
 ---
 
 ## 📁 Project Structure
@@ -511,7 +595,7 @@ ReachyBuddy/
 │   ├── cheese/             # Photo capture mode
 │   ├── guard/              # Security monitoring mode
 │   ├── chat/               # Voice/text chat with LLM + emotion actions
-│   └── agent/              # AI agent (placeholder)
+│   └── agent/              # AI agent with Hermes API + tool calling
 ├── utils/                   # Shared utilities
 │   ├── asr.py              # Speech recognition
 │   ├── tts_engine.py       # Text-to-speech
@@ -521,7 +605,7 @@ ReachyBuddy/
 │   └── face_tracker.py     # Face detection
 ├── docs/                    # Documentation
 │   ├── face_tracking.md    # Camera and face tracking guide
-│   └── TO-DO.md            # Guard mode future enhancements
+│   └── TO-DO.md            # Future enhancements
 ├── requirements/            # Per-mode dependencies
 └── models/                  # Voice models + vision models
 ```
@@ -540,6 +624,7 @@ ReachyBuddy/
 | **Robot Control** | reachy-mini SDK |
 | **Guard VLM** | Ollama (gemma4:12b / gemma4:e2b) |
 | **Chat LLM** | Ollama (qwen3.5:0.8b / qwen3:0.6b) |
+| **Agent LLM** | Hermes API (OpenAI-compatible, local hermes-agent) |
 
 ---
 
@@ -630,6 +715,36 @@ export NO_PROXY=localhost,127.0.0.1
 1. Check the terminal for `🧠 Analysis:` output. If none appears, the analysis thread may not have started — run with `--debug`.
 2. The VLM may return "OK" for normal scenes. Place a person or object in front of the camera and wait one analysis interval.
 3. Verify screenshots directory exists: `ls ~/Pictures/ReachyGuard`
+
+### Hermes API Not Responding (Agent Mode)
+
+If Agent mode starts but cannot reach Hermes API:
+
+```bash
+# Check if Hermes gateway is running
+ps aux | grep hermes
+
+# Check if API server is listening on port 8642
+ss -tlnp | grep 8642
+
+# Test API server health
+curl http://localhost:8642/health
+
+# Test with authentication
+curl -H "Authorization: Bearer alehe" http://localhost:8642/v1/models
+```
+
+If the API server is not running:
+
+```bash
+# Check if API server is enabled in config
+grep -A 10 "api_server" ~/.hermes/config.yaml
+
+# Restart the gateway
+hermes gateway restart
+```
+
+If you have `HTTP_PROXY` / `HTTPS_PROXY` environment variables set, the app will bypass them for local Hermes requests.
 
 ---
 

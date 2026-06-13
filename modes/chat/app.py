@@ -111,8 +111,8 @@ class ChatModeApp:
         else:
             self.gui = None
 
-        # 6. Verify Ollama
-        self._verify_ollama()
+        # 6. Verify LLM backend
+        self._verify_llm()
 
         print(f"🤖 Chat running — Ollama: {self.cfg.ollama_url} model: {self.cfg.ollama_model}")
 
@@ -148,7 +148,7 @@ class ChatModeApp:
             print(f"❌ ASR init failed: {e}")
             self.cfg.use_asr = False
 
-    def _verify_ollama(self):
+    def _verify_llm(self):
         """Quick check Ollama is reachable."""
         proxies = {"http": None, "https": None}
         try:
