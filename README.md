@@ -4,7 +4,7 @@
 
 - **🧀 Cheese Mode**: Voice-interactive photo capture with automatic face tracking and alignment
 - **🔒 Guard Mode**: Multi-modal security monitoring with Ollama VLM analysis, head scanning, and voice alerts
-- **💬 Chat Mode**: Voice conversation with LLM (placeholder, TODO)
+- **💬 Chat Mode**: Voice/text conversation with Ollama LLM, Piper-TTS, and emotion-driven robot actions
 - **🤖 Agent Mode**: AI agent with tools (placeholder, TODO)
 
 ![Demo](./assets/ReachyMiniChat.png)
@@ -53,9 +53,22 @@ Multi-modal security monitoring using an Ollama vision-language model. The robot
 - Bypasses `HTTP_PROXY` for local Ollama requests
 - Headless mode support (`--gui-backend none`)
 
-### Chat / Agent Modes (Placeholders)
+### Chat Mode (Implemented)
 
-These modes are planned for future development. Running them will show a "coming soon" message.
+Voice/text conversation with an Ollama LLM. The robot speaks replies via Piper-TTS and performs emotion-driven actions based on the response content.
+
+**Features:**
+- ASR input with VAD (default) or text input (`--no-asr`)
+- Streaming-style synchronous chat via Ollama `/api/chat`
+- Conversation history (configurable size)
+- Emotion analysis of LLM replies (positive / negative / question / activity / neutral)
+- Emotion-driven recorded moves from Pollen libraries
+- "Thinking" head animation while waiting for LLM response
+- Headless mode support (`--gui-backend none`)
+
+### Agent Mode (Placeholder)
+
+This mode is planned for future development. Running it will show a "coming soon" message.
 
 ---
 
@@ -179,6 +192,41 @@ OLLAMA_HOST=http://192.168.1.100:11434 python main.py --guard
 ```
 
 Alert screenshots are saved to `~/Pictures/ReachyGuard/` by default.
+
+### Run Chat Mode
+
+#### Requirements
+
+- Ollama running locally or reachable
+- A text-capable model, e.g. `qwen3.5:0.8b` (default)
+
+```bash
+ollama pull qwen3.5:0.8b
+```
+
+#### Voice chat (default, ASR enabled)
+
+```bash
+python main.py --chat --camera-source reachy
+```
+
+#### Text chat
+
+Useful for testing without a microphone:
+
+```bash
+python main.py --chat --camera-source reachy --no-asr --gui-backend none
+```
+
+#### Common Chat Options
+
+```bash
+# Use a different model or gentle actions
+python main.py --chat --ollama-model qwen3:0.6b --gentle
+
+# Set ASR language explicitly
+python main.py --chat --asr-language zh
+```
 
 ---
 
@@ -417,15 +465,16 @@ Global Options:
   --speaker INT         Speaker ID (default: 0)
 ```
 
-### Cheese Mode Options
+### Chat Mode Options
 
 ```
-  --save-dir PATH       Photo save directory
-  --camera-profile NAME Camera profile to load (created via tuning tools)
-  --track / --no-track  Enable/disable head/body tracking (default: on)
+  --ollama-url URL        Ollama API URL (default: http://localhost:11434)
+  --ollama-model MODEL    Ollama model name (default: qwen3.5:0.8b)
+  --history-size N        Conversation history size (default: 5)
+  --no-asr                Disable ASR; use text input
+  --asr-language LANG     ASR language (default: auto)
+  --gentle                Enable gentle emotion actions
 ```
-
-### Guard Mode Options
 
 ```
   --guard-model MODEL      Ollama VLM model (default: gemma4:12b)
@@ -448,7 +497,7 @@ ReachyBuddy/
 ├── modes/                   # Mode implementations
 │   ├── cheese/             # Photo capture mode
 │   ├── guard/              # Security monitoring mode
-│   ├── chat/               # Voice chat (placeholder)
+│   ├── chat/               # Voice/text chat with LLM + emotion actions
 │   └── agent/              # AI agent (placeholder)
 ├── utils/                   # Shared utilities
 │   ├── asr.py              # Speech recognition
@@ -477,6 +526,7 @@ ReachyBuddy/
 | **GUI** | OpenCV (`cv2`) / headless (`none`) |
 | **Robot Control** | reachy-mini SDK |
 | **Guard VLM** | Ollama (gemma4:12b / gemma4:e2b) |
+| **Chat LLM** | Ollama (qwen3.5:0.8b / qwen3:0.6b) |
 
 ---
 

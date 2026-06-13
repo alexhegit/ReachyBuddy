@@ -118,8 +118,8 @@ class RobotRuntime:
         """Set body yaw."""
         raise NotImplementedError
 
-    def move_head(self, pan: float = 0.0, tilt: float = 0.0, duration: float = 0.5) -> None:
-        """Set head pan/tilt in radians directly."""
+    def move_head(self, pan: float = 0.0, tilt: float = 0.0, roll: float = 0.0, duration: float = 0.5) -> None:
+        """Set head pan/tilt/roll in radians directly."""
         raise NotImplementedError
 
     def reset_head(self, duration: float = 0.2) -> None:
@@ -304,13 +304,13 @@ class ReachyRuntime(RobotRuntime):
         if self._reachy:
             self._reachy.goto_target(body_yaw=yaw, duration=duration)
 
-    def move_head(self, pan: float = 0.0, tilt: float = 0.0, duration: float = 0.5) -> None:
+    def move_head(self, pan: float = 0.0, tilt: float = 0.0, roll: float = 0.0, duration: float = 0.5) -> None:
         if self._reachy:
             try:
-                pose = create_head_pose(pan=pan, tilt=tilt)
+                pose = create_head_pose(pan=pan, tilt=tilt, roll=roll)
             except TypeError:
                 try:
-                    pose = create_head_pose(pan, tilt)
+                    pose = create_head_pose(pan, tilt, roll)
                 except Exception:
                     pose = None
             if pose is not None:
@@ -387,7 +387,7 @@ class WebcamRuntime(RobotRuntime):
         # No-op for webcam
         pass
 
-    def move_head(self, pan: float = 0.0, tilt: float = 0.0, duration: float = 0.5) -> None:
+    def move_head(self, pan: float = 0.0, tilt: float = 0.0, roll: float = 0.0, duration: float = 0.5) -> None:
         # No-op for webcam
         pass
 

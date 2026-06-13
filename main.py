@@ -4,14 +4,15 @@
 Modes:
   --cheese    Voice photo capture with face tracking
   --guard     Multi-modal security monitoring with Ollama VLM
-  --chat      Voice conversation with LLM (placeholder)
-  --agent     Voice-controlled AI agent (placeholder)
+  --chat      Voice/text chat with Ollama LLM and emotion actions
+  --agent     Voice-controlled AI agent with tools (placeholder)
 
 Examples:
   python main.py --cheese --camera-source webcam
   python main.py --guard --camera-source reachy
   python main.py --guard --guard-model gemma4:e2b --guard-interval 5
-  python main.py --chat --ollama-model qwen3:0.6b
+  python main.py --chat --camera-source reachy
+  python main.py --chat --ollama-model qwen3:0.6b --gentle
   python main.py --agent --tools config/tools.yaml
 """
 
@@ -32,7 +33,7 @@ def create_parser() -> argparse.ArgumentParser:
 Available modes:
   --cheese    Photo capture with voice control (implemented)
   --guard     Security monitoring with Ollama VLM (implemented)
-  --chat      Voice conversation with LLM via Ollama (placeholder)
+  --chat      Voice/text chat with Ollama LLM and emotion actions (implemented)
   --agent     Voice-controlled AI agent with tools (placeholder)
 
 For mode-specific help:
@@ -55,7 +56,7 @@ For mode-specific help:
     mode_group.add_argument(
         "--chat",
         action="store_true",
-        help="Voice chat mode with LLM (placeholder)",
+        help="Voice/text chat mode with Ollama LLM and emotion actions",
     )
     mode_group.add_argument(
         "--agent",
@@ -231,8 +232,8 @@ For mode-specific help:
         help="Head scan range in radians (default: 0.6)",
     )
 
-    # Chat mode options (placeholder)
-    chat_group = parser.add_argument_group("Chat mode options (placeholder)")
+    # Chat mode options
+    chat_group = parser.add_argument_group("Chat mode options")
     chat_group.add_argument(
         "--ollama-url",
         default="http://localhost:11434",
@@ -240,7 +241,7 @@ For mode-specific help:
     )
     chat_group.add_argument(
         "--ollama-model",
-        default="qwen3:0.6b",
+        default="qwen3.5:0.8b",
         help="Ollama model name",
     )
     chat_group.add_argument(
@@ -248,6 +249,24 @@ For mode-specific help:
         type=int,
         default=5,
         help="Conversation history size",
+    )
+    chat_group.add_argument(
+        "--no-asr",
+        dest="use_asr",
+        action="store_false",
+        default=True,
+        help="Disable ASR; use text input instead",
+    )
+    chat_group.add_argument(
+        "--asr-language",
+        default=None,
+        help="ASR language (default: auto)",
+    )
+    chat_group.add_argument(
+        "--gentle",
+        action="store_true",
+        default=False,
+        help="Enable gentle emotion actions",
     )
 
     # Agent mode options (placeholder)
@@ -327,7 +346,8 @@ def build_config(args) -> tuple:
         )
     elif args.chat:
         mode = "chat"
-        config = ModeConfig(
+        from modes.chat.config import ChatConfig
+        config = ChatConfig(
             camera_source=args.camera_source,
             camera_index=args.camera_index,
             preview_width=args.preview_width,
@@ -341,12 +361,15 @@ def build_config(args) -> tuple:
             piper_model=args.piper_model,
             piper_config=args.piper_config,
             speaker_id=args.speaker,
+            ollama_url=args.ollama_url,
+            ollama_model=args.ollama_model,
+            max_history=args.history_size,
+            use_asr=args.use_asr,
+            asr_language=args.asr_language,
+            gentle_mode=args.gentle,
+            reachy_host=args.reachy_host,
+            reachy_port=args.reachy_port,
         )
-        config.mode_specific = {
-            "ollama_url": args.ollama_url,
-            "ollama_model": args.ollama_model,
-            "history_size": args.history_size,
-        }
     elif args.agent:
         mode = "agent"
         config = ModeConfig(
