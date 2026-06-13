@@ -206,17 +206,20 @@ class ChatModeApp(BaseModeApp):
         print("🎙️ ASR listener started")
 
     def _asr_loop(self):
-        """Continuously listen and queue transcriptions."""
+        """Record 4s chunks and transcribe (push-to-talk style, same as emo_v7)."""
         while getattr(self, '_running', True):
             try:
-                text = self._asr_engine.transcribe_from_mic_vad(
-                    max_duration=10.0,
-                    silence_threshold=1.2,
-                    language=self.cfg.asr_language,
+                if self.cfg.debug:
+                    print(f"\n⏺️ Recording (4s)...")
+                text = self._asr_engine.transcribe_from_mic(
+                    duration=4.0,
                 )
                 if text and text.strip():
-                    print(f"   🎤 ASR: {text.strip()}")
+                    print(f"📝 You: {text.strip()}")
                     self._message_queue.put(text.strip())
+                else:
+                    if self.cfg.debug:
+                        print("⚠️ No speech detected, try again")
             except Exception as e:
                 if self.cfg.debug:
                     print(f"   ⚠️ ASR error: {e}")
