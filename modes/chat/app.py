@@ -207,7 +207,7 @@ class ChatModeApp(BaseModeApp):
 
     def _asr_loop(self):
         """Continuously listen and queue transcriptions."""
-        while getattr(self, '_running', False):
+        while getattr(self, '_running', True):
             try:
                 text = self._asr_engine.transcribe_from_mic_vad(
                     max_duration=10.0,
@@ -215,6 +215,7 @@ class ChatModeApp(BaseModeApp):
                     language=self.cfg.asr_language,
                 )
                 if text and text.strip():
+                    print(f"   🎤 ASR: {text.strip()}")
                     self._message_queue.put(text.strip())
             except Exception as e:
                 if self.cfg.debug:
@@ -230,13 +231,16 @@ class ChatModeApp(BaseModeApp):
 
     def _text_loop(self):
         """Read lines from stdin and queue them."""
-        while getattr(self, '_running', False):
+        import sys
+        while getattr(self, '_running', True):
             try:
-                line = input("\n🧑 You: ").strip()
+                line = sys.stdin.readline()
+                if not line:
+                    time.sleep(0.5)
+                    continue
+                line = line.strip()
                 if line:
                     self._message_queue.put(line)
-            except EOFError:
-                time.sleep(0.5)
             except Exception as e:
                 if self.cfg.debug:
                     print(f"   ⚠️ Text input error: {e}")
