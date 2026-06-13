@@ -35,9 +35,9 @@ class ChatConfig(ModeConfig):
     # Thinking animation
     thinking_duration: float = 10.0
 
+    # Connection info for daemon
+    reachy_host: str = "127.0.0.1"
+    reachy_port: int = 8000
+
     def __post_init__(self):
-        # Allow override from mode_specific if present
-        if self.mode_specific:
-            for key, value in self.mode_specific.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
+        pass
