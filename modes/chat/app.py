@@ -279,6 +279,9 @@ class ChatModeApp:
                         print(f"\n⚠️ Ollama error: {chunk['error']}")
                         return None
                     content = chunk.get("message", {}).get("content") or ""
+                    thinking = chunk.get("message", {}).get("thinking") or ""
+                    if not content and thinking:
+                        content = thinking
                     if content:
                         print(content, end="", flush=True)
                         full_response += content
