@@ -411,11 +411,17 @@ def main() -> int:
 
     # Import and run mode
     try:
-        from modes import get_mode
+        if mode_name == "chat":
+            # Chat mode has its own blocking loop, not BaseModeApp's frame loop
+            from modes.chat import ChatModeApp
+            app = ChatModeApp(config)
+            app.run()
+        else:
+            from modes import get_mode
 
-        ModeClass = get_mode(mode_name)
-        app = ModeClass(config)
-        app.run()
+            ModeClass = get_mode(mode_name)
+            app = ModeClass(config)
+            app.run()
         return 0
 
     except NotImplementedError as e:
