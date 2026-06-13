@@ -55,16 +55,23 @@ Multi-modal security monitoring using an Ollama vision-language model. The robot
 
 ### Chat Mode (Implemented)
 
-Voice/text conversation with an Ollama LLM. The robot speaks replies via Piper-TTS and performs emotion-driven actions based on the response content.
+Voice conversation with Ollama LLM. The robot acts as a voice assistant, speaking replies via Piper-TTS and performing emotion-driven actions (head movements, recorded moves) based on conversation context.
+
+**Workflow:**
+```
+[ASR 4s recording] --> [transcription] --> [Ollama LLM] --> [emotion analysis] --> [Piper TTS + robot actions]
+```
 
 **Features:**
-- ASR input with VAD (default) or text input (`--no-asr`)
+- ASR input with fixed 4s recording (default) or text input (`--no-asr`)
+- Voice assistant persona with enthusiastic, concise replies
 - Streaming-style synchronous chat via Ollama `/api/chat`
 - Conversation history (configurable size)
 - Emotion analysis of LLM replies (positive / negative / question / activity / neutral)
-- Emotion-driven recorded moves from Pollen libraries
-- "Thinking" head animation while waiting for LLM response
-- Headless mode support (`--gui-backend none`)
+- Emotion-driven recorded moves from Pollen emotions and dances libraries
+- Gentle mode for subtler actions (`--gentle`)
+- Piper-TTS fully offline speech synthesis
+- Supports English and Chinese conversation (auto-detected)
 
 ### Agent Mode (Placeholder)
 
@@ -210,13 +217,17 @@ ollama pull qwen3.5:0.8b
 python main.py --chat --camera-source reachy
 ```
 
+Just speak after the 4s recording prompt. The robot will reply with voice and emotion actions.
+
 #### Text chat
 
 Useful for testing without a microphone:
 
 ```bash
-python main.py --chat --camera-source reachy --no-asr --gui-backend none
+python main.py --chat --no-asr --gui-backend none
 ```
+
+Note: `--camera-source` is not required in chat mode — the robot connects directly via the Reachy daemon.
 
 #### Common Chat Options
 
@@ -475,6 +486,8 @@ Global Options:
   --asr-language LANG     ASR language (default: auto)
   --gentle                Enable gentle emotion actions
 ```
+
+### Guard Mode Options
 
 ```
   --guard-model MODEL      Ollama VLM model (default: gemma4:12b)

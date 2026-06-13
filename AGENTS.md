@@ -11,8 +11,8 @@
 | Mode | Status | Description |
 |------|--------|-------------|
 | **Cheese** | ✅ Implemented | Voice-interactive photo capture with automatic face tracking and alignment |
-| **Guard** | 🚧 Placeholder | Multi-modal security monitoring (planned: vision-language models) |
-| **Chat** | 🚧 Placeholder | Voice conversation with LLM via Ollama |
+| **Guard** | ✅ Implemented | Multi-modal security monitoring with Ollama VLM analysis |
+| **Chat** | ✅ Implemented | Voice assistant chat with Ollama LLM and emotion actions |
 | **Agent** | 🚧 Placeholder | Voice-controlled AI agent with tool calling |
 
 The core workflow for Cheese mode:
